@@ -1,11 +1,11 @@
 // First-person Lantern: walk, take off, fly. Ring hand view-model with a real light on the ring.
 import * as THREE from 'three';
 import { camera, scene } from './gfx.js';
-import { height } from './world.js';
-import { movePlayer } from './sim/playerbody.js';
+import { height, SPAWN } from './world.js';
+import { movePlayer, kcGrounded } from './sim/playerbody.js';
 
 const EYE = 1.75, WALK = 5, RUN = 9, FLY = 14, BOOST = 45;
-export const player = { pos: new THREE.Vector3(0, height(0, 0) + EYE, 6), vel: new THREE.Vector3(), yaw: 0, pitch: 0, flying: false, speed: 0, roll: 0, grounded: true };
+export const player = { pos: new THREE.Vector3(SPAWN.x, height(SPAWN.x, SPAWN.z) + EYE, SPAWN.z), vel: new THREE.Vector3(), yaw: 0, pitch: 0, flying: false, speed: 0, roll: 0, grounded: true };
 scene.add(camera);
 
 // ---------- ring hand (glove + ring), parented to camera ----------
@@ -22,11 +22,13 @@ export const ringTip = new THREE.Object3D(); // where constructs and the tether 
     const f = add(new THREE.CapsuleGeometry(0.024, 0.05, 4, 8), suit, -0.045 + k * 0.03, 0.02, -0.07); f.rotation.x = Math.PI / 2.4;
   }
   const thumb = add(new THREE.CapsuleGeometry(0.024, 0.05, 4, 8), suit, -0.07, -0.02, -0.03); thumb.rotation.z = 1.1;
-  const ring = add(new THREE.TorusGeometry(0.028, 0.008, 8, 20), new THREE.MeshStandardMaterial({ color: 0x9fb8a8, metalness: 1, roughness: 0.25 }), -0.045, 0.045, -0.075);
+  const ring = add(new THREE.TorusGeometry(0.028, 0.008, 8, 20), new THREE.MeshStandardMaterial({ color: 0x9fb8a8, metalness: 1, roughness: 0.25 }), -0.015, 0.045, -0.075); // middle finger
+  ring.userData.ring = true;
   ring.rotation.x = Math.PI / 2.4;
-  const gem = add(new THREE.BoxGeometry(0.03, 0.012, 0.03), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x3dff6e).multiplyScalar(6) }), -0.045, 0.062, -0.075);
+  const gem = add(new THREE.BoxGeometry(0.03, 0.012, 0.03), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x3dff6e).multiplyScalar(6) }), -0.015, 0.062, -0.075);
+  gem.userData.ring = true;
   hand.userData.gem = gem;
-  ringTip.position.set(-0.045, 0.08, -0.12); hand.add(ringTip);
+  ringTip.position.set(-0.015, 0.08, -0.12); hand.add(ringTip);
   const l = new THREE.PointLight(0x3dff6e, 0.6, 6, 2); l.position.set(-0.04, 0.25, -0.9); hand.add(l); hand.userData.light = l; // ahead of the hand: lights the world, not the glove
   hand.position.set(0.24, -0.24, -0.42); hand.rotation.set(0.15, 0.25, 0);
   hand.traverse((o) => { o.castShadow = false; });
@@ -52,7 +54,7 @@ export function updatePlayer(dt, i, g, aimHand) {
     want.y += ((i.cross ? 1 : 0) - (i.circle ? 1 : 0)) * 9;
     player.vel.lerp(want, 1 - Math.exp(-dt * (i.r1 ? 1.5 : 3)));
     player.vel.y += Math.sin(performance.now() / 600) * 0.02; // hover bob
-    if (player.pos.y <= ground + 0.05 && i.circle) { player.flying = false; }
+    if ((player.pos.y <= ground + 0.05 || kcGrounded()) && i.circle) { player.flying = false; } // land on ground, roofs, decks
   } else {
     fwd.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw)); right.set(-fwd.z, 0, fwd.x);
     const sp = i.l3 ? RUN : WALK;
@@ -63,8 +65,10 @@ export function updatePlayer(dt, i, g, aimHand) {
   }
   const moved = movePlayer(player.pos, _mv.copy(player.vel).multiplyScalar(dt), EYE); // trees, walls and heavy props stop you; light props get shoved
   if (dt > 0) { player.vel.x = moved.x / dt; player.vel.z = moved.z / dt; if (player.flying) player.vel.y = moved.y / dt; } // hitting something kills your speed into it (no slipping round trunks)
-  player.grounded = player.pos.y <= ground;
-  if (player.grounded) { player.pos.y = ground; if (player.vel.y < 0) player.vel.y = 0; }
+  const onCollider = !player.flying && kcGrounded();
+  player.grounded = player.pos.y <= ground || onCollider;
+  if (player.pos.y <= ground) player.pos.y = ground;
+  if (player.grounded && player.vel.y < 0) player.vel.y = 0;
   player.pos.y = Math.min(player.pos.y, 400);
   player.speed = player.vel.length();
   // feel: bank into strafes/turns, FOV opens with speed

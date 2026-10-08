@@ -125,7 +125,7 @@ export function read() {
     l2: kbAnalog.l2, r2: kbAnalog.r2,
     l1: k('KeyZ'), r1: k('KeyC'), l3: k('ShiftLeft'), r3: k('KeyR'),
     options: k('Escape'), create: false, ps: false, touchClick: k('Tab'),
-    touch: null, speak: k('KeyT') || k('KeyV') ? 0.8 : mic.level, // T = oath, V = voice surge (keyboard stand-ins for the mic)
+    touch: null, speak: k('KeyT') || k('KeyU') ? 0.8 : mic.level, // T = oath, U = voice surge (keyboard stand-ins for the mic); V = third person
   };
   if (!ds) return (pad.in = i);
 

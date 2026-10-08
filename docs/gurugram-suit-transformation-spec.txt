@@ -1,0 +1,40 @@
+WILL & FEAR: Gurugram level, Lantern suit and transformation spec (from Hark)
+Save this in ~/Projects/lantern/docs/ and build from it.
+
+Next feature: Gurugram level, Lantern suit and transformation. Build on the current game. Rushville stays the default level, and ?level=gurugram loads the city. Player, pad, constructs, fear and sim/ are shared. Put the whole city under one root group so we can add a floating origin later.
+
+A. Real map: tools/bake-osm.mjs
+- Query the Overpass API (overpass-api.de with a kumi.systems fallback, and a proper User-Agent) for bbox 28.4865,77.0790,28.5035,77.0985. That covers DLF Cyber City, Cyber Hub and a stretch of NH-48. Fetch building, highway, railway (Rapid Metro), leisure/park, landuse, natural=water|wood and amenity points.
+- Convert lat/lon to local metres around the origin 28.4950, 77.0890, and write compact public/osm/gurugram.json. Show "© OpenStreetMap contributors" in the HUD.
+
+B. city/osmcity.js: make it feel real, not like blocks
+- Building height: use height, then building:levels×3.3 m, then a fallback by type (office/commercial in Cyber City 45–110 m, residential 12–30 m, small shops 4–9 m). Add per-building variety in tone, setbacks and podiums.
+- Materials:
+  - Office towers: a glass curtain-wall shader (procedural mullion grid, env-map reflection and Fresnel, random lit windows at night).
+  - Everything else: plaster or concrete with grime and AO.
+  - Rooftops: Gurgaon clutter (black water tanks, AC units, dish antennas), all instanced.
+- Streets:
+  - Roads: ribbons with width by class, worn asphalt, lane paint, kerbs, footpaths and medians.
+  - NH-48 and the Rapid Metro: on viaduct pillars where OSM says bridge or railway.
+  - Street furniture: instanced street lights, trees (neem and peepal tones) along roads and in parks, parked cars, autos and barricades as dynamic Rapier props using sim/breakables.
+- Atmosphere: NCR haze, with warm dusty fog, a softer sun and a hazy horizon. At night, sodium-orange streetlights, lit towers and the Cyber Hub glow.
+- Physics: a static collider per building (a cuboid fitted to its footprint's oriented box, or convex if simple), plus road and terrain.
+- Budget on Medium for an M5: at least 60 fps and under 300 draw calls. Merge geometry per material, instance everything repeated, and add LOD or culling for distant blocks.
+
+C. suit/suit.js: the Lantern
+- Body: a rigged humanoid (three.js examples/models/gltf/Xbot.glb, a Mixamo X Bot) with an original suit shader. A matte black base with layered dark-green panels, thin emissive green seams with a Fresnel rim, the lantern emblem as a chest decal from a canvas texture, and a domino mask with glowing eyes.
+- First person: visible forearms and hands in the suit, and a glowing ring on the right middle finger. ringTip follows the ring bone.
+- Third person: a toggle with V, plus automatically during the transformation.
+
+D. The transformation (movie style)
+- Trigger: speaking the oath at full charge, holding L1+R1 for 1 s, or the T key.
+- 2.2 s sequence:
+  1. The camera eases out to a third-person orbit.
+  2. The ring flares, with a bloom spike, the lightbar ramping to green, the heartbeat haptic rising into a surge, and trigger tension building.
+  3. The suit grows outward from the ring. A uFormRadius uniform expands from the ring's position, measured over the body. Its leading edge is a bright band of green energy lines with particles, and the civilian clothes dissolve behind it.
+  4. The mask forms last.
+  5. A shockwave pulse gives nearby props a radial impulse and flattens the grass.
+  6. The camera returns to first person.
+- Holding T plays the power-down in reverse. Allocate nothing per frame, and use a synthesised rising-whoosh audio.
+
+Testing: run a vite build. Then load ?level=gurugram in Chrome and report the building and road counts, draw calls and FPS on Medium. Send screenshots of a street view, the top of a tower, the night view and the transformation at 50%. Give me a short DualSense checklist for the transformation and flying through the city. Commit and push.

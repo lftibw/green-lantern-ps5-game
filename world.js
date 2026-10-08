@@ -7,6 +7,7 @@ import { Tree } from '@dgreenheck/ez-tree';
 import { scene, setSky, sun, renderer } from './gfx.js';
 import { makeField, wheatTuft, grassTuft } from './veg.js';
 import { settings } from './settings.js';
+import { CITY } from './level.js';
 
 await RAPIER.init();
 export { RAPIER };
@@ -16,6 +17,9 @@ export const props = []; // { body, mesh, kind } dynamic world props (crate, rai
 export const trunks = []; // fixed tree-trunk colliders
 export const statics = []; // { collider, mat } other fixed colliders; main.js tags them via sim/impacts.js
 export let terrainCollider = null;
+const setTerrainCollider = (c) => (terrainCollider = c);
+export const SPAWN = new THREE.Vector3(0, 0, 6); // where the player starts (the city picks a street)
+export let city = null;
 export const bodies = []; // { body, mesh, p0,q0,p1,q1 } — interpolated between physics steps when rendered
 export const GU = { uTime: { value: 0 }, uPush: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] } };
 export const LANTERN = new THREE.Vector3(38, 0, -62);
@@ -40,6 +44,7 @@ function vnoise(x, z) {
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 export function height(x, z) {
+  if (CITY) return 0; // Gurugram is flat; bridges/roofs are colliders
   let h = (vnoise(x * 0.012, z * 0.012) - 0.5) * 10 + (vnoise(x * 0.04, z * 0.04) - 0.5) * 2.2;
   const dl = Math.hypot(x - LANTERN.x, z - LANTERN.z);
   h += 9 * Math.exp(-(dl * dl) / 900); // the lantern's hill
@@ -51,7 +56,7 @@ export function height(x, z) {
 const SIZE = 600, SEG = 240;
 // baked map for the GPU fields: R height, G wheat, B pasture grass
 const MAP_N = 512;
-const growMap = (() => {
+const growMap = CITY ? null : (() => {
   const d = new Uint16Array(MAP_N * MAP_N * 4), f = THREE.DataUtils.toHalfFloat;
   for (let j = 0; j < MAP_N; j++) for (let i = 0; i < MAP_N; i++) {
     const x = ((i + 0.5) / MAP_N - 0.5) * SIZE, z = ((j + 0.5) / MAP_N - 0.5) * SIZE, k = (j * MAP_N + i) * 4;
@@ -70,14 +75,15 @@ function tex(path, srgb, repeat) {
   const t = c.tex.clone(); c.clones.push(t);
   t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = maxAniso; t.repeat.set(repeat, repeat);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.needsUpdate = true; return t;
+  if (c.tex.image) t.needsUpdate = true; // otherwise the load callback flags it
+  return t;
 }
 function pbr(id, repeat = 1, o = {}) {
   const arm = tex(`/tex/${id}/arm.jpg`, false, repeat);
   return new THREE.MeshStandardMaterial({ map: tex(`/tex/${id}/diff.jpg`, true, repeat), normalMap: tex(`/tex/${id}/nor.jpg`, false, repeat), roughnessMap: arm, metalnessMap: arm, aoMap: arm, metalness: 1, ...o });
 }
 
-{
+if (!CITY) {
   const g = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); g.rotateX(-Math.PI / 2);
   const p = g.attributes.position, uv = g.attributes.uv, mix = new Float32Array(p.count * 3);
   for (let k = 0; k < p.count; k++) {
@@ -112,7 +118,7 @@ function pbr(id, repeat = 1, o = {}) {
 }
 
 // ---------- fields that follow the player ----------
-const fields = [
+const fields = CITY ? [] : [
   makeField({ geo: wheatTuft, count: 300, S: 96, channel: 'g', map: { tex: growMap, size: SIZE }, GU, colorA: '1.0, 0.95, 0.85', colorB: '0.92, 0.9, 0.7', tipBoost: 0.3, bendK: 0.32 }),
   makeField({ geo: grassTuft, count: 260, S: 70, channel: 'b', map: { tex: growMap, size: SIZE }, GU, colorA: '1.0, 1.0, 1.0', colorB: '1.15, 1.0, 0.75', tipBoost: 0.2, bendK: 0.18 }),
 ];
@@ -158,8 +164,8 @@ function hayTex() {
 const hayMat = std({ map: hayTex(), roughness: 0.95 });
 
 // ---------- dynamic props ----------
-function addBody(mesh, desc, colliders, kind = 'prop') {
-  mesh.traverse((o) => { o.castShadow = o.receiveShadow = true; }); scene.add(mesh);
+function addBody(mesh, desc, colliders, kind = 'prop', parent = scene) {
+  mesh.traverse((o) => { o.castShadow = o.receiveShadow = true; }); parent.add(mesh);
   const body = physics.createRigidBody(desc.setTranslation(mesh.position.x, mesh.position.y, mesh.position.z).setRotation(mesh.quaternion));
   colliders.forEach((c) => physics.createCollider(c, body));
   track(body, mesh);
@@ -175,6 +181,8 @@ const crate = (x, y, z, s = 0.9) => {
   const m = new THREE.Mesh(boxM(s, s, s), woodMat); m.position.set(x, y, z);
   addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(s / 2, s / 2, s / 2).setDensity(120).setFriction(0.7)], 'crate');
 };
+export const truck = new THREE.Group();
+if (!CITY) {
 for (let k = 0; k < 14; k++) { const a = k * 0.9; bale(-14 + Math.cos(a) * (8 + k), -26 + Math.sin(a) * 6 - k * 1.5); }
 { const bx = 11, bz = -18, y0 = height(bx, bz) + 0.45; for (let r = 0; r < 4; r++) for (let c = 0; c < 4 - r; c++) crate(bx + (c - (3 - r) / 2) * 0.92, y0 + 0.01 + r * 0.91, bz); } // 1 cm settle gaps: exact contact made spawn jolts break crates
 // fence: posts static (merged), rails dynamic
@@ -184,7 +192,6 @@ for (let k = 0; k < 12; k++) {
   if (k < 11) { const m = new THREE.Mesh(boxM(0.07, 0.16, 4), woodMat); m.position.set(x, height(x, z - 2) + 1.0, z - 2); addBody(m, RAPIER.RigidBodyDesc.fixed(), [RAPIER.ColliderDesc.cuboid(0.035, 0.08, 1.9).setDensity(500)], 'rail'); } // nailed: fixed until a hit shatters it (sim/breakables.js); 1.9 half-length clears the posts
 }
 // old green pickup (rusted), heavy
-export const truck = new THREE.Group();
 {
   const x = 3, z = -36, body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.9, 5), rustMat); body.position.y = 0.2;
   const cab = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.9, 1.8), rustMat); cab.position.set(0, 1.05, 0.4);
@@ -199,9 +206,11 @@ export const truck = new THREE.Group();
   truck.userData = { hl, lamp };
 }
 
+} // end Rushville props
+
 // ---------- barn, water tower, poles (static, merged) ----------
 const night = { lights: [] };
-{
+if (!CITY) {
   const x = -40, z = -70, y = height(x, z) - 0.2, ry = 0.2, c = Math.cos(ry), s = Math.sin(ry);
   const at = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
   addStatic(boxM(14, 8, 20), barnRed, x, y + 4, z, ry); fixedCol(x, y + 4, z, 7, 4, 10, ry);
@@ -248,7 +257,7 @@ function makeSign(text) {
 
 // ---------- trees: EZ-Tree variants, drawn instanced ----------
 const trees = [];
-{
+if (!CITY) {
   const spots = { 'Ash Medium': [], 'Oak Medium': [], 'Aspen Medium': [] }, names = Object.keys(spots);
   let k = 0;
   for (let x = -175; x <= 170; x += 9 + Math.random() * 4) spots[names[k++ % 3]].push([x, -195 - Math.random() * 6]); // shelterbelt
@@ -284,6 +293,13 @@ const trees = [];
       scene.add(im);
     }
   }
+}
+
+// ---------- Gurugram (?level=gurugram): real OSM city under one root group ----------
+if (CITY) {
+  const { buildCity } = await import('./city/osmcity.js');
+  city = await buildCity({ physics, RAPIER, props, statics, LANTERN, SPAWN, setTerrainCollider, addBody: (m, d, c, k, parent) => addBody(m, d, c, k, parent),
+    pbrTex: (id, repeat) => ({ map: tex(`/tex/${id}/diff.jpg`, true, repeat) }) });
 }
 
 // ---------- the power battery (lantern) on the knoll ----------
@@ -369,14 +385,30 @@ const TIMES = {
     cloud: { sun: 0x2a3550, shade: 0x0a0f1c, cover: 0.62 }, night: 1, starVis: true,
   },
 };
+// Gurugram: NCR haze (warm dusty fog, soft sun, hazy horizon); night = light-polluted orange-brown sky
+const TIMES_CITY = {
+  day: {
+    sky: { sun: [40, 200], turbidity: 10, rayleigh: 0.55, mie: 0.035, fog: 0xc2b6a2, fogDensity: 0.0026, sunColor: 0xffdcae, sunIntensity: 2.3,
+      hemiSky: 0xddd0b8, hemiGround: 0x6a5a48, hemiIntensity: 0.95, envIntensity: 0.85, exposure: 0.6, clouds: 0, sea: null, motes: null,
+      grade: { tint: [1.06, 1.0, 0.9], sat: 0.84, vignette: 0.24, contrast: 0.95 } },
+    cloud: { sun: 0xeee0c8, shade: 0xc0b19c, cover: 0.42 }, night: 0, starVis: false,
+  },
+  night: {
+    sky: { gradient: [0x0a0b12, 0x2a2026, 0x6b4630], sun: [20, 200], fog: 0x2a2026, fogDensity: 0.0045, sunColor: 0x8a90b0, sunIntensity: 0.7,
+      hemiSky: 0x5a4a5a, hemiGround: 0x3a2a20, hemiIntensity: 0.9, envIntensity: 0.6, exposure: 1.0, clouds: 0, sea: null, motes: null,
+      grade: { tint: [1.04, 0.98, 0.94], sat: 1.05, vignette: 0.4, contrast: 1.08 } },
+    cloud: { sun: 0x4a3a34, shade: 0x1a1416, cover: 0.55 }, night: 1, starVis: false,
+  },
+};
 export let timeOfDay = 'day';
 export function setTime(t) {
-  timeOfDay = t; const T = TIMES[t];
+  timeOfDay = t; const T = (CITY ? TIMES_CITY : TIMES)[t];
   setSky(T.sky);
   cloudMat.uniforms.uSunCol.value.set(T.cloud.sun); cloudMat.uniforms.uShade.value.set(T.cloud.shade); cloudMat.uniforms.uCover.value = T.cloud.cover; cloudMat.uniforms.uNight.value = T.night;
   stars.visible = moon.visible = T.starVis;
   for (const [o, v, key = 'intensity'] of night.lights) o[key] = T.night ? v : 0;
-  truck.userData.hl.intensity = T.night ? 40 : 0; truck.userData.lamp.emissiveIntensity = T.night ? 5 : 0;
+  if (truck.userData.hl) { truck.userData.hl.intensity = T.night ? 40 : 0; truck.userData.lamp.emissiveIntensity = T.night ? 5 : 0; }
+  city?.setNight(T.night);
   lantern.userData.light.distance = T.night ? 28 : 14;
 }
 Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, far: 220 }); sun.shadow.camera.updateProjectionMatrix();
@@ -387,7 +419,7 @@ export function skyFollow(cam) {
   moon.position.setFromSphericalCoords(800, THREE.MathUtils.degToRad(66), THREE.MathUtils.degToRad(210)).add(cam.position); moon.lookAt(cam.position);
   cloudMat.uniforms.uSun.value.copy(sun.position).sub(sun.target.position).normalize();
 }
-export function updateWorld(t, center) { updateFields(center); for (const tr of trees) tr.update(t); }
+export function updateWorld(t, center) { updateFields(center); for (const tr of trees) tr.update(t); city?.update(t); }
 
 // ---------- fixed-step physics + interpolated mesh sync ----------
 // Physics ticks at 60 Hz; meshes are drawn between the last two states, so motion stays smooth on 120 Hz displays.

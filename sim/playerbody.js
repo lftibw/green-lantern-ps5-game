@@ -17,6 +17,7 @@ const include = (c) => c.handle !== terrainCollider.handle && tagOf(c.handle)?.m
 
 const _d = { x: 0, y: 0, z: 0 };
 // eyePos: THREE.Vector3 (mutated), delta: THREE.Vector3 desired move this frame, eye: eye height above feet
+export const kcGrounded = () => cc.computedGrounded(); // standing on a collider (roof, bridge deck, viaduct)
 export function movePlayer(eyePos, delta, eye) {
   const cy = eyePos.y - eye + HALF + RADIUS;
   col.setTranslation({ x: eyePos.x, y: cy, z: eyePos.z });

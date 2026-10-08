@@ -18,6 +18,34 @@ import { tag, tagBody, onImpact, updateImpacts, impactSound } from './sim/impact
 import { register as breakable, checkBreak, updateBreakables, BREAK } from './sim/breakables.js';
 import { updatePerf, PERF } from './sim/perf.js';
 import { updateTuning } from './sim/tuning.js';
+import { physics, city } from './world.js';
+import { CITY } from './level.js';
+import { suit, dressViewmodel, updateSuit, ringWorld } from './suit/suit.js';
+import { tf, powerUp, powerDown, busy as transforming, updateTransform } from './suit/transform.js';
+
+dressViewmodel(hand, ringTip);
+// third-person camera collision: ray from the eye toward the camera spot, ignoring sensors (your capsule) and dynamic props
+const camRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+const raycast = (o, d, max) => { camRay.origin.x = o.x; camRay.origin.y = o.y; camRay.origin.z = o.z; camRay.dir.x = d.x; camRay.dir.y = d.y; camRay.dir.z = d.z;
+  const h = physics.castRay(camRay, max, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS | RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC); return h ? h.timeOfImpact : max; };
+const ringPos = new THREE.Vector3();
+const tctx = { ringPos, player, bodies: props };
+// transformation triggers: oath at full charge, L1+R1 held 1 s (Z+C on keyboard), T tap = power up / hold T = power down
+const tKey = { down: 0, held: false, fired: false };
+let comboT = 0, oathTransform = false;
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyT' && !e.repeat && ring.mode !== 'oath') { tKey.down = performance.now(); tKey.held = true; tKey.fired = false; }
+  if (e.code === 'KeyV' && !e.repeat) { suit.tpWanted = !suit.tpWanted; label(suit.tpWanted ? 'THIRD PERSON' : 'FIRST PERSON'); }
+});
+addEventListener('keyup', (e) => { if (e.code === 'KeyT' && tKey.held) { tKey.held = false; if (!tKey.fired && performance.now() - tKey.down < 400 && ring.mode !== 'oath') powerUp(); } });
+function transformInput(dt, i) {
+  if (tKey.held && !tKey.fired && performance.now() - tKey.down > 650) { tKey.fired = true; powerDown(); } // hold T: power down
+  comboT = i.l1 && i.r1 ? comboT + dt : 0;
+  if (comboT >= 1) { comboT = -99; (suit.suited ? powerDown : powerUp)(); }
+  if (!i.l1 || !i.r1) comboT = Math.max(comboT, 0);
+  if (oathTransform && ring.charge >= 0.999 && ring.mode === 'play') { oathTransform = false; powerUp(); }
+}
+if (CITY) document.getElementById('osm').hidden = false;
 
 // ---------- world interaction: materials, breakables, impact feedback ----------
 for (const p of props) {
@@ -184,7 +212,7 @@ function spawn(spec) {
   camera.getWorldDirection(fwd);
   const base = spec.name === 'fist' ? 3.6 : 3 + radius * 1.4;
   const q = aimQuat(spec.level, spec.qOff ?? new THREE.Quaternion());
-  const at = tmp.copy(camera.position).addScaledVector(fwd, base);
+  const at = tmp.copy(player.pos).addScaledVector(fwd, base); // from the eye (camera may be over the shoulder)
   if (spec.level) at.y = Math.min(at.y, player.pos.y - 1.2);
   const c = C.create(spec, at, q);
   c.base = base; c.barrel = spec.barrel;
@@ -231,7 +259,7 @@ function oath(dt, i) {
   oathSpans.forEach((s, k) => s.classList.toggle('lit', k < n));
   P.setHum(0.05 + (n / OATH.length) * 0.3);
   if (n >= OATH.length) {
-    ring.mode = 'play'; $('oath').classList.remove('on'); ring.refill = 1;
+    ring.mode = 'play'; $('oath').classList.remove('on'); ring.refill = 1; oathTransform = !suit.suited; // the oath at full charge calls the suit
     for (let k = 0; k < 10; k++) P.haptic({ type: 'sine', f: 60 + k * 25, dur: 0.12, amp: 0.2 + k * 0.05, at: k * 0.08 });
     P.sfx({ type: 'sine', f: 110, f1: 440, dur: 1.2, amp: 0.25 });
     say('ring_full'); say('hal_oath_done');
@@ -253,10 +281,12 @@ function frame(now) {
   const c = C.held;
 
   if (ring.mode === 'oath') { oath(dt, i); updatePlayer(dt, { ...i, mx: 0, my: 0, cross: false }, g, 0); }
+  else if (transforming()) { updatePlayer(dt, { ...i, mx: 0, my: 0, cross: false, circle: false }, g, 0); } // hold still while the suit forms
   else {
     inputDraw(dt, i);
     if (P.pressed('square')) { spawn({ ...C.fistGeo(), name: 'fist', qOff: qFlip.clone() }); once('fistUsed', () => setStep('free')); }
     updatePlayer(dt, i, g, c ? Math.max(i.r2, 0.35) : 0);
+    transformInput(dt, i);
     // lantern
     const nearLantern = player.pos.distanceTo(tmp.set(LANTERN.x, LANTERN.y + 1.7, LANTERN.z)) < 6;
     if (nearLantern) {
@@ -276,7 +306,7 @@ function frame(now) {
     const ext = h.kind === 'fist' ? (h.punch > 0.18 ? 16 : h.punch > 0 ? 8 : 0) : h.behavior === 'cannon' ? 0 : Math.pow(i.r2, 1.3) * 18;
     const dist = Math.max(1.4, h.base + ext - i.l2 * (h.base - 1.4));
     camera.getWorldDirection(fwd);
-    target.copy(camera.position).addScaledVector(fwd, dist);
+    target.copy(player.pos).addScaledVector(fwd, dist);
     aimQuat(h.level, h.qOff, targetQ);
     if (h.level) target.y = Math.min(target.y, player.pos.y - 1.2);
     ring.charge -= dt * (0.006 + h.strain * 0.04 + i.r2 * 0.01);
@@ -306,7 +336,7 @@ function frame(now) {
   const fearL = F.fear.level;
 
   // wheat parts around you and your constructs
-  GU.uPush.value[0].set(player.pos.x, player.pos.y - 1.75, player.pos.z, player.flying ? 2.5 + Math.max(0, 6 - (player.pos.y - 1.75 - 0)) * 0.3 : 0.8);
+  GU.uPush.value[0].set(player.pos.x, player.pos.y - 1.75, player.pos.z, tf.flatten > 0 ? 3 + (0.8 - tf.flatten) * 14 : player.flying ? 2.5 + Math.max(0, 6 - (player.pos.y - 1.75 - 0)) * 0.3 : 0.8); // transformation shockwave flattens the grass
   pushWheat(1, C.held); pushWheat(2, C.list[C.list.length - 1]);
 
   // ---- ring charge ----
@@ -336,7 +366,8 @@ function frame(now) {
   if ((labelT -= dt) <= 0) $('made').classList.remove('on');
   const low = ring.charge < 0.2, pulse = 0.75 + 0.25 * Math.sin(now / (low ? 120 : 600));
   const k = (0.15 + ring.charge * 0.85) * pulse;
-  P.light(THREE.MathUtils.lerp(40 * k, 230 * k, fearL) + flashT * 400, 255 * Math.min(1, k * (1 - fearL * 0.2) + flashT * 2), 90 * k * (1 - fearL) + flashT * 400); // green → yellow with fear
+  if (tf.light > 0) P.light(30 * tf.light, 255 * tf.light, 70 * tf.light); // transformation: lightbar ramps to full green
+  else P.light(THREE.MathUtils.lerp(40 * k, 230 * k, fearL) + flashT * 400, 255 * Math.min(1, k * (1 - fearL * 0.2) + flashT * 2), 90 * k * (1 - fearL) + flashT * 400); // green → yellow with fear
   ledBlink += dt;
   const bars = Math.ceil(ring.charge * 5);
   P.leds(P.ledCount(low && ledBlink % 0.6 < 0.3 ? bars - 1 : bars));
@@ -346,6 +377,7 @@ function frame(now) {
   else if (C.held.kind === 'fist' || C.held.behavior === 'cannon') r2 = { effect: TriggerEffect.Weapon, start: 0.3, end: 0.6, strength: 0.9 };
   else if (strain > 0.65) r2 = { effect: TriggerEffect.Vibration, position: 0.1, amplitude: strength(strain), frequency: 28 };
   else r2 = { effect: TriggerEffect.Feedback, position: 0.05, strength: strength(0.2 + Math.min(0.4, C.held.volume * 0.03) + strain * 0.5 + (1 - ring.charge) * 0.2 + fearL * 0.4) };
+  if (tf.tension > 0) r2 = { effect: TriggerEffect.Feedback, position: 0.05, strength: strength(0.15 + tf.tension * 0.85) }; // tension builds as the suit forms
   P.triggers(C.held ? { effect: TriggerEffect.Feedback, position: 0.1, strength: 0.25 } : null, r2);
   P.flush(dt);
   if (P.pad.connected && i.headphone !== flags.hp) { flags.hp = i.headphone; P.setHeadphoneRoute(i.headphone); }
@@ -354,6 +386,8 @@ function frame(now) {
   hand.userData.light.intensity = 0.4 + (C.held ? 1 + strain * 1.5 : 0) + flashT * 5;
   hand.userData.gem.material.color.setRGB(0.24, 1, 0.43).multiplyScalar(3 + ring.charge * 4 + flashT * 10);
   lantern.userData.light.intensity = 60 + (ring.mode === 'oath' ? 80 * (ring.oathChars / OATH.length) : 0) + ring.refill * 120;
+  updateSuit(dt, player, raycast);
+  ringWorld(ringTip, ringPos); updateTransform(dt, tctx);
   updateTether();
   skyFollow(camera); followSun(player.pos); updateWorld(now / 1000, player.pos);
   hud(ring.charge, fearL);
@@ -381,7 +415,7 @@ const tp = new THREE.Vector3();
 function updateTether() {
   tether.visible = !!C.held;
   if (!C.held) return;
-  ringTip.getWorldPosition(tp);
+  ringWorld(ringTip, tp);
   tether.position.copy(tp); tether.lookAt(C.held.mesh.position);
   tether.scale.set(1, 1, tp.distanceTo(C.held.mesh.position));
   tether.material.uniforms.uPower.value = 0.35 + (C.held.strain ?? 0) * 0.6;
@@ -405,4 +439,4 @@ const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { G, F, dread: F.dread, fear: F.fear, renderer, scene, W: { props, trunks, statics, height, RAPIER }, sim: { onImpact, BREAK, PERF }, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { suit, tf, powerUp, powerDown, city, G, F, dread: F.dread, fear: F.fear, renderer, scene, W: { props, trunks, statics, height, RAPIER }, sim: { onImpact, BREAK, PERF }, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

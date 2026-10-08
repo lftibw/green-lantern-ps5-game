@@ -198,6 +198,8 @@ const grade = new ShaderPass({
 let composer, aoPass, bloomPass;
 const gradeBase = { sat: 1.08, vig: 0.35, fear: 0 };
 // fear drains colour and closes the edges in (applied on top of the time-of-day grade)
+// transformation flare: brief bloom spike on top of the preset
+export function setBloomBoost(k) { if (bloomPass) { bloomPass.strength = 0.55 * (1 + k * 1.6); bloomPass.threshold = 3.2 / (1 + k * 0.6); } }
 export function setFearGrade(f) {
   gradeBase.fear = f;
   grade.uniforms.sat.value = gradeBase.sat * (1 - 0.6 * f);
