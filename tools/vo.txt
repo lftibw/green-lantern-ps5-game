@@ -1,0 +1,13 @@
+ring_boot|Samantha|185|Ring online. Sector two eight one four. Charge at one hundred percent.
+ring_low|Samantha|185|Warning. Charge at twenty percent.
+ring_empty|Samantha|185|Charge depleted. Return to your lantern.
+ring_full|Samantha|185|Charge restored.
+ring_lantern|Samantha|185|Power battery detected. Recite the oath to recharge.
+hal_intro|Reed (English (US))|170|Easy, Stewart. You don't think about the shape. You decide it. Draw it on the pad, and the ring does the rest.
+hal_first|Reed (English (US))|170|There it is. Now push. Squeeze R2, and lean your will into it.
+hal_strain|Reed (English (US))|170|Feel that in your fingers? That's the ring asking if you mean it. Bigger the thought, heavier the lift.
+hal_throw|Reed (English (US))|170|Jab the controller forward and let it fly. Or L1 to let it go.
+hal_fly|Reed (English (US))|170|Flight's not a power, John. It's a choice. Hold cross, and choose up.
+hal_fist|Reed (English (US))|170|Square for the classic. Guy would be proud.
+hal_lantern|Reed (English (US))|170|You're running on fumes. Lantern's up on the hill. Say the words, and mean them.
+hal_oath_done|Reed (English (US))|170|Every time you say it, it gets a little easier to believe.

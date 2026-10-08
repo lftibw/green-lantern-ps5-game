@@ -1,0 +1,12 @@
+{
+  "name": "lantern",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "voices": "sh tools/voices.sh" },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.14.0",
+    "dualsense-ts": "^6.15.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": { "vite": "^5.4.10" }
+}

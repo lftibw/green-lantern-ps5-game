@@ -1,0 +1,1 @@
+{ "version": "0.0.1", "configurations": [ { "name": "lantern", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "5174"], "port": 5174 } ] }
