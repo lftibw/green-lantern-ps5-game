@@ -3,6 +3,7 @@
 // third-person camera (V toggle; forced during the transformation). Ring position follows the ring bone in third person.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { scene, camera } from '../gfx.js';
 
 export const SU = { // shared uniforms (body + first-person arms)
@@ -105,10 +106,30 @@ export function suitMaterial(skinned, map = null) {
 // ---------- body: a realistic Mixamo-rigged man (three.js 'Soldier'); X Bot as fallback ----------
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 export const pivot = new THREE.Group(); // at the hips: yaw/pitch/roll for flight happen here
-const MODELS = [{ url: '/models/Soldier.glb', facing: 0, hide: /visor/i }, { url: '/models/Xbot.glb', facing: Math.PI, hide: null }];
+// John from Mixamo (public/models/john/: john.fbx 'With Skin' + idle/walk/run[/flying].fbx 'Without Skin'), else the three.js rigs
+const JOHN = '/models/john/';
+const MODELS = [
+  { url: JOHN + 'john.fbx', fbx: true, facing: Math.PI, hide: null, anims: { idle: 'idle.fbx', walk: 'walk.fbx', run: 'run.fbx', fly: 'flying.fbx' } },
+  { url: '/models/Soldier.glb', facing: 0, hide: /visor/i },
+  { url: '/models/Xbot.glb', facing: Math.PI, hide: null },
+];
+const exists = async (u) => { try { const r = await fetch(u, { method: 'HEAD' }); return r.ok && !(r.headers.get('content-type') ?? '').includes('text/html'); } catch { return false; } };
+async function loadModel(M) {
+  if (!M.fbx) { const g = await new GLTFLoader().loadAsync(M.url); return { scene: g.scene, animations: g.animations }; }
+  const fbx = new FBXLoader(), root = await fbx.loadAsync(M.url);
+  root.scale.setScalar(0.01); // Mixamo FBX is in centimetres
+  const animations = [];
+  for (const [name, file] of Object.entries(M.anims)) {
+    if (!(await exists(JOHN + file))) continue;
+    const a = await fbx.loadAsync(JOHN + file); const clip = a.animations[0]; if (!clip) continue;
+    clip.name = name; animations.push(clip);
+  }
+  return { scene: root, animations };
+}
 for (const M of MODELS) {
   try {
-    const gltf = await new GLTFLoader().loadAsync(M.url);
+    if (M.fbx && !(await exists(M.url))) continue; // no Mixamo John yet → next model
+    const gltf = await loadModel(M);
     const body = gltf.scene;
     body.updateMatrixWorld(true);
     // normalised bind-pose coords (metres, y up, +z front) for the suit regions: model space, turned to face +z
@@ -121,9 +142,10 @@ for (const M of MODELS) {
         const p = o.geometry.attributes.position, a = new Float32Array(p.count * 3);
         for (let i = 0; i < p.count; i++) { _v.fromBufferAttribute(p, i).applyMatrix4(_m2); a[i * 3] = _v.x; a[i * 3 + 1] = _v.y; a[i * 3 + 2] = _v.z; }
         o.geometry.setAttribute('aObj', new THREE.BufferAttribute(a, 3));
-        o.material = suitMaterial(true, o.material.map ?? null); o.castShadow = true; o.frustumCulled = false;
+        const src = Array.isArray(o.material) ? o.material[0] : o.material;
+        o.material = suitMaterial(true, src.map ?? null); o.castShadow = true; o.frustumCulled = false;
       }
-      if (o.isBone) { suit.bones.push(o); suit.boneBy[o.name.replace(/^mixamorig:?/, '')] = o; }
+      if (o.isBone) { suit.bones.push(o); suit.boneBy[o.name.replace(/^mixamorig\d*:?/, '')] = o; }
       if (o.isBone && /RightHandMiddle1$/.test(o.name)) suit.ringBone = o; // GLTFLoader strips ':' from 'mixamorig:…'
     });
     // eyes + chest from bind-pose bones, in the same normalised space
@@ -141,7 +163,7 @@ for (const M of MODELS) {
       ring.rotation.y = Math.PI / 2; suit.ringBone.add(ring); suit.ringMesh = ring;
     }
     suit.mixer = new THREE.AnimationMixer(body);
-    for (const clip of gltf.animations) { const n = clip.name.toLowerCase(), a = suit.mixer.clipAction(clip); suit.actions[n] = a; if (/^(idle|walk|run)$/.test(n)) { a.play(); a.setEffectiveWeight(n === 'idle' ? 1 : 0); } }
+    for (const clip of gltf.animations) { const n = clip.name.toLowerCase(), a = suit.mixer.clipAction(clip); suit.actions[n] = a; if (/^(idle|walk|run|fly)$/.test(n)) { a.play(); a.setEffectiveWeight(n === 'idle' ? 1 : 0); } }
     body.rotation.y = M.facing; body.position.y = -hipsY; // the model hangs from the hips pivot
     pivot.add(body); pivot.visible = false; scene.add(pivot);
     suit.body = body; suit.hipsY = hipsY; suit.model = M.url; suit.ready = true;
@@ -225,7 +247,8 @@ export function updateSuit(dt, player, raycast) {
   pivot.quaternion.setFromEuler(_e.set(bPitch, bYaw, bRoll));
   pivot.position.set(player.pos.x, player.pos.y - 1.75 + suit.hipsY, player.pos.z);
   const run = !player.flying && hs > 5.5, walk = !player.flying && hs > 0.6 && !run;
-  for (const [n, on] of [['idle', !run && !walk], ['walk', walk], ['run', run]]) { animW[n] += ((on ? 1 : 0) - animW[n]) * (1 - Math.exp(-dt * 8)); suit.actions[n]?.setEffectiveWeight(animW[n]); }
+  const flyClip = !!suit.actions.fly && player.flying;
+  for (const [n, on] of [['idle', !run && !walk && !flyClip], ['walk', walk], ['run', run], ['fly', flyClip]]) { animW[n] = animW[n] ?? 0; animW[n] += ((on ? 1 : 0) - animW[n]) * (1 - Math.exp(-dt * 8)); suit.actions[n]?.setEffectiveWeight(animW[n]); }
   if (pivot.visible) {
     suit.mixer.update(dt);
     pivot.updateMatrixWorld(true);
