@@ -1,4 +1,11 @@
 node_modules
 dist
+build
+.DS_Store
+.env
+.env.*
+# large/regenerable binaries (see README "Assets")
+public/tex/
+public/vo/
 tools/.venv
 tools/qd

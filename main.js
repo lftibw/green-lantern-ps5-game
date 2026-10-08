@@ -3,14 +3,15 @@ import * as THREE from 'three';
 import * as P from './pad.js';
 import { TriggerEffect, MuteLedMode } from './pad.js';
 import { camera, render, followSun, renderer, scene } from './gfx.js';
-import { stepPhysics, skyFollow, GU, LANTERN, lantern } from './world.js';
+import * as G from './gfx.js';
+import { stepPhysics, skyFollow, GU, LANTERN, lantern, updateWorld, setTime, timeOfDay } from './world.js';
 import { player, updatePlayer, ringTip, hand } from './player.js';
 import * as C from './constructs.js';
 import voText from './tools/vo.txt?raw';
 import { classify } from './doodle.js';
 import { build as LIB, KNOWN } from './library.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { settings } from './settings.js';
+import { settings, save } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 const ring = { charge: 1, mode: 'play', oathChars: 0, refill: 0 };
@@ -326,7 +327,7 @@ function frame(now) {
   hand.userData.gem.material.color.setRGB(0.24, 1, 0.43).multiplyScalar(3 + ring.charge * 4 + flashT * 10);
   lantern.userData.light.intensity = 60 + (ring.mode === 'oath' ? 80 * (ring.oathChars / OATH.length) : 0) + ring.refill * 120;
   updateTether();
-  skyFollow(camera); followSun(player.pos);
+  skyFollow(camera); followSun(player.pos); updateWorld(now / 1000, player.pos);
   $('ring').firstElementChild.style.width = `${ring.charge * 100}%`;
   $('pct').textContent = `${Math.round(ring.charge * 100)}%`;
   if (P.pad.connected && i.battery != null) $('batt').textContent = `🔋 ${Math.round(i.battery * 100)}%`;
@@ -361,9 +362,10 @@ async function start(withPad) {
 }
 $('connect').onclick = () => start(true);
 $('keys').onclick = () => start(false);
+addEventListener('keydown', (e) => { if (e.code === 'KeyN') { setTime(timeOfDay === 'day' ? 'night' : 'day'); settings.time = timeOfDay; save(); } });
 let kbThrow = false;
 const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { G, renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

@@ -19,8 +19,8 @@ THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   #else
     float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
   #endif
-  float hf = clamp(exp(-(vFogWorld.y + 1.0) * 0.32), 0., 1.) * (1. - exp(-vFogDepth * 0.045));
-  fogFactor = max(fogFactor, hf * 0.92);
+  float hf = clamp(exp(-(vFogWorld.y + 4.0) * 0.25), 0., 1.) * (1. - exp(-vFogDepth * 0.02)); // low-lying haze
+  fogFactor = max(fogFactor, hf * 0.45);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 #endif`;
 
@@ -194,6 +194,7 @@ const grade = new ShaderPass({
 });
 
 let composer, aoPass, bloomPass;
+export const aoSkip = new Set();
 export function applyQuality() {
   const q = Q();
   renderer.setPixelRatio(Math.min(devicePixelRatio, q.pixelRatio));
@@ -209,6 +210,9 @@ export function applyQuality() {
     aoPass = new GTAOPass(scene, camera, innerWidth, innerHeight);
     aoPass.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1, samples: 12 });
     aoPass.blendIntensity = 0.85;
+    // perf: grass/wheat are skipped in the AO normal/depth pre-pass (half their cost; AO on blades is noise anyway)
+    const r = aoPass.render.bind(aoPass);
+    aoPass.render = (...a) => { aoSkip.forEach((o) => (o.visible = false)); r(...a); aoSkip.forEach((o) => (o.visible = true)); };
     composer.addPass(aoPass);
   }
   if (q.bloom) {
@@ -226,6 +230,7 @@ addEventListener('resize', () => {
   composer.setSize(innerWidth, innerHeight);
 });
 
+export { sky };
 export const _dbg = { sky, seas, motes, clouds, get composer() { return composer; } };
 export function render(dt) {
   sky.position.copy(camera.position); gradSky.position.copy(camera.position);
