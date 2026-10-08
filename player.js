@@ -32,12 +32,12 @@ export const ringTip = new THREE.Object3D(); // where constructs and the tether 
   camera.add(hand);
 }
 
-const fwd = new THREE.Vector3(), right = new THREE.Vector3(), want = new THREE.Vector3();
+const fwd = new THREE.Vector3(), right = new THREE.Vector3(), want = new THREE.Vector3(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
 // i: input snapshot, g: gyro deltas {yaw,pitch}, aimHand: 0..1 (R2 raises the ring hand)
 export function updatePlayer(dt, i, g, aimHand) {
   player.yaw += (-i.cx * 2.4 * dt) + g.yaw;
   player.pitch = THREE.MathUtils.clamp(player.pitch + i.cy * 1.8 * dt + g.pitch, -1.45, 1.45);
-  camera.quaternion.setFromEuler(new THREE.Euler(player.pitch, player.yaw, player.roll, 'YXZ'));
+  camera.quaternion.setFromEuler(_e.set(player.pitch, player.yaw, player.roll));
 
   const ground = height(player.pos.x, player.pos.z) + EYE;
   if (!player.flying && i.cross && !player.prevCross) { player.flying = true; player.vel.y = Math.max(player.vel.y, 6); }

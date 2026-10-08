@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import * as P from './pad.js';
 import { TriggerEffect, MuteLedMode } from './pad.js';
-import { camera, render, followSun } from './gfx.js';
+import { camera, render, followSun, renderer, scene } from './gfx.js';
 import { stepPhysics, skyFollow, GU, LANTERN, lantern } from './world.js';
 import { player, updatePlayer, ringTip, hand } from './player.js';
 import * as C from './constructs.js';
@@ -278,7 +278,7 @@ function frame(now) {
 
   // wheat parts around you and your constructs
   GU.uPush.value[0].set(player.pos.x, player.pos.y - 1.75, player.pos.z, player.flying ? 2.5 + Math.max(0, 6 - (player.pos.y - 1.75 - 0)) * 0.3 : 0.8);
-  [C.held, C.list.at(-1)].forEach((cc, k) => { const u = GU.uPush.value[k + 1]; if (cc) u.set(cc.mesh.position.x, cc.mesh.position.y - cc.size * 0.6, cc.mesh.position.z, cc.size * 1.2 + 0.6); else u.set(0, -99, 0, 0); });
+  pushWheat(1, C.held); pushWheat(2, C.list[C.list.length - 1]);
 
   // ---- ring charge ----
   if (ring.refill > 0) { ring.charge = Math.min(1, ring.charge + dt * 0.6); if (ring.charge >= 1) ring.refill = 0; }
@@ -334,6 +334,8 @@ function frame(now) {
   render(dt);
 }
 
+function pushWheat(k, cc) { const u = GU.uPush.value[k]; if (cc) u.set(cc.mesh.position.x, cc.mesh.position.y - cc.size * 0.6, cc.mesh.position.z, cc.size * 1.2 + 0.6); else u.set(0, -99, 0, 0); }
+
 // energy tether from the ring to the held construct
 const tether = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.004, 1, 8, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2), C.hardLight());
 tether.material.uniforms.uBuild.value = 1; tether.renderOrder = 3;
@@ -364,4 +366,4 @@ const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

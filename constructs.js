@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { scene } from './gfx.js';
-import { physics, RAPIER, GU } from './world.js';
+import { physics, RAPIER, GU, track, untrack } from './world.js';
 import { settings } from './settings.js';
 
 const GREEN = new THREE.Color(0.06, 1.0, 0.22);
@@ -133,6 +133,7 @@ export function create(g, at, quat) {
   mesh.position.copy(at); mesh.quaternion.copy(quat); mesh.renderOrder = 2; scene.add(mesh);
   const body = physics.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(at.x, at.y, at.z).setRotation(quat)
     .setGravityScale(0).setLinearDamping(0.5).setAngularDamping(2).setCcdEnabled(true));
+  track(body, mesh);
   g.colliders.forEach((d) => physics.createCollider(d.setDensity(g.density ?? 450).setFriction(0.8).setRestitution(0.1), body));
   const c = { kind: g.name ?? 'free', behavior: g.behavior, qOff: g.qOff ?? new THREE.Quaternion(), level: !!g.level, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, push: 0, punch: 0 };
   list.push(c);
@@ -174,10 +175,9 @@ export function steer(target, targetQ) {
 
 export function update(dt) {
   let li = 0;
-  for (const c of [...list]) {
+  for (let k = list.length - 1; k >= 0; k--) { // backwards: safe to remove while iterating, no array copy
+    const c = list[k];
     c.age += dt; c.life -= dt;
-    const t = c.body.translation(), r = c.body.rotation();
-    c.mesh.position.set(t.x, t.y, t.z); c.mesh.quaternion.set(r.x, r.y, r.z, r.w);
     c.build = Math.min(1, c.build + dt * 2.6);
     c.mat.uniforms.uBuild.value = c.life < 0.6 ? Math.max(0, c.life / 0.6) : c.build;
     c.mat.uniforms.uStrain.value = c.strain;
@@ -188,7 +188,7 @@ export function update(dt) {
     }
     if (c.life <= 0) {
       scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mat.dispose();
-      physics.removeRigidBody(c.body); list.splice(list.indexOf(c), 1);
+      untrack(c.body); physics.removeRigidBody(c.body); list.splice(k, 1);
       if (held === c) held = null;
     }
   }

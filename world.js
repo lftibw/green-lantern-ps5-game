@@ -7,7 +7,7 @@ import { scene, setSky, sun, Q } from './gfx.js';
 await RAPIER.init();
 export { RAPIER };
 export const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-export const bodies = []; // { body, mesh } synced each step
+export const bodies = []; // { body, mesh, p0,q0,p1,q1 } — interpolated between physics steps when rendered
 export const GU = { uTime: { value: 0 }, uPush: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] } };
 export const LANTERN = new THREE.Vector3(38, 0, -62);
 
@@ -65,8 +65,9 @@ function noiseTex(n, rgb, amp, streaks = 0) {
 
 // ---------- wheat: instanced stalks + ears, wind + push-away from player/constructs ----------
 {
-  const stalk = new THREE.PlaneGeometry(0.03, 1.1, 1, 4); stalk.translate(0, 0.55, 0);
-  const ear = new THREE.CylinderGeometry(0.018, 0.028, 0.16, 5, 1); ear.translate(0, 1.16, 0);
+  // perf: ~10 tris per stalk (was ~28); wheat is drawn in the colour AND the AO pass, so this dominates the frame
+  const stalk = new THREE.PlaneGeometry(0.03, 1.1, 1, 3); stalk.translate(0, 0.55, 0);
+  const ear = new THREE.CylinderGeometry(0.018, 0.028, 0.16, 3, 1, true); ear.translate(0, 1.16, 0);
   const geo = mergeGeometries([stalk.toNonIndexed(), ear.toNonIndexed()].map((g) => { g.deleteAttribute('uv'); return g; }));
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75, side: THREE.DoubleSide });
   mat.onBeforeCompile = (s) => {
@@ -138,7 +139,7 @@ function addBody(mesh, desc, colliders, dyn = true) {
   mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh);
   const body = physics.createRigidBody(desc.setTranslation(mesh.position.x, mesh.position.y, mesh.position.z).setRotation(mesh.quaternion));
   colliders.forEach((c) => physics.createCollider(c, body));
-  if (dyn) bodies.push({ body, mesh });
+  if (dyn) track(body, mesh);
   return body;
 }
 const groundY = (x, z) => height(x, z);
@@ -236,13 +237,26 @@ export const lantern = new THREE.Group();
   physics.createCollider(RAPIER.ColliderDesc.cylinder(1, 0.6).setTranslation(LANTERN.x, y + 1, LANTERN.z));
 }
 
-// ---------- fixed-step physics + mesh sync ----------
+// ---------- fixed-step physics + interpolated mesh sync ----------
+// Physics ticks at 60 Hz; meshes are drawn between the last two states, so motion stays smooth on 120 Hz displays.
+export function track(body, mesh) {
+  const t = body.translation(), r = body.rotation();
+  const e = { body, mesh, p0: new THREE.Vector3(t.x, t.y, t.z), q0: new THREE.Quaternion(r.x, r.y, r.z, r.w) };
+  e.p1 = e.p0.clone(); e.q1 = e.q0.clone(); bodies.push(e); return e;
+}
+export const untrack = (body) => { const k = bodies.findIndex((b) => b.body === body); if (k >= 0) bodies.splice(k, 1); };
+const STEP = 1 / 60;
 let acc = 0;
 export function stepPhysics(dt, beforeStep) {
-  acc = Math.min(acc + dt, 0.1);
-  while (acc >= 1 / 60) { beforeStep?.(1 / 60); physics.step(); acc -= 1 / 60; }
-  for (const b of bodies) {
-    const t = b.body.translation(), r = b.body.rotation();
-    b.mesh.position.set(t.x, t.y, t.z); b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+  acc = Math.min(acc + dt, 0.1); // cap: no spiral of death after a hitch
+  while (acc >= STEP) {
+    beforeStep?.(STEP); physics.step(); acc -= STEP;
+    for (const b of bodies) {
+      b.p0.copy(b.p1); b.q0.copy(b.q1);
+      const t = b.body.translation(), r = b.body.rotation();
+      b.p1.set(t.x, t.y, t.z); b.q1.set(r.x, r.y, r.z, r.w);
+    }
   }
+  const a = acc / STEP;
+  for (const b of bodies) { b.mesh.position.lerpVectors(b.p0, b.p1, a); b.mesh.quaternion.slerpQuaternions(b.q0, b.q1, a); }
 }
