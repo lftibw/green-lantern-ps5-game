@@ -13,6 +13,26 @@ import { classify } from './doodle.js';
 import { build as LIB, KNOWN } from './library.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { settings, save } from './settings.js';
+import { props, trunks } from './world.js';
+import { tag, tagBody, onImpact, updateImpacts, impactSound } from './sim/impacts.js';
+import { register as breakable, checkBreak, updateBreakables } from './sim/breakables.js';
+import { updatePerf } from './sim/perf.js';
+import { updateTuning } from './sim/tuning.js';
+
+// ---------- world interaction: materials, breakables, impact feedback ----------
+for (const p of props) {
+  if (p.kind === 'crate') breakable(p.body, p.mesh, { kind: 'crate' });
+  else if (p.kind === 'rail') breakable(p.body, p.mesh, { kind: 'rail' });
+  else tagBody(p.body, p.kind === 'truck' ? 'metal' : p.kind === 'bale' ? 'hay' : 'wood', p);
+}
+for (const t of trunks) tag(t, 'wood');
+onImpact((h) => {
+  checkBreak(h);
+  P.sfx3d(impactSound(h), h.pos);
+  const mine = (h.ownerA && C.list.includes(h.ownerA)) || (h.ownerB && C.list.includes(h.ownerB));
+  const near = h.pos.distanceTo(player.pos) < 15;
+  if ((mine && h.s > 0.15) || (near && h.s > 0.6)) { P.haptic({ type: 'sine', f: 50 + h.s * 30, dur: 0.08 + h.s * 0.12, amp: 0.2 + h.s * 0.6 }); if (h.s > 0.5) P.rumble(h.s * 0.6); }
+});
 
 const $ = (id) => document.getElementById(id);
 const ring = { charge: 1, mode: 'play', oathChars: 0, refill: 0 };
@@ -277,6 +297,7 @@ function frame(now) {
   // physics: steer the held construct every fixed step
   stepPhysics(dt, fixedStep);
   C.update(dt);
+  updateImpacts(dt); updateBreakables(dt); updatePerf(dt); updateTuning();
   // ---- fear: the Dread, the meter, cracks, heartbeat, will surge ----
   fctx.i = i; fctx.alpha = physAlpha; fctx.now = now;
   fctx.nearLantern = player.pos.distanceToSquared(tmp.set(LANTERN.x, LANTERN.y, LANTERN.z)) < 144;
@@ -341,7 +362,7 @@ function frame(now) {
 }
 
 const fctx = { i: null, ring, player, nearLantern: false, alpha: 0, now: 0 };
-const fixedStep = () => { C.steer(target, targetQ); F.fixedStep(STEP, player); };
+const fixedStep = () => { C.steer(target, targetQ, prevR2, ring.charge * (1 - 0.5 * F.fear.level), STEP); F.fixedStep(STEP, player); }; // fear weakens your will drive
 const hintEl = $('hint'), ringBar = $('ring').firstElementChild, pctEl = $('pct'), fearBar = $('fear').firstElementChild;
 let hudC = -1, hudF = -1;
 function hud(c, f) { // DOM writes only when a value visibly changes

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { camera, scene } from './gfx.js';
 import { height } from './world.js';
+import { movePlayer } from './sim/playerbody.js';
 
 const EYE = 1.75, WALK = 5, RUN = 9, FLY = 14, BOOST = 45;
 export const player = { pos: new THREE.Vector3(0, height(0, 0) + EYE, 6), vel: new THREE.Vector3(), yaw: 0, pitch: 0, flying: false, speed: 0, roll: 0, grounded: true };
@@ -32,6 +33,7 @@ export const ringTip = new THREE.Object3D(); // where constructs and the tether 
   camera.add(hand);
 }
 
+const _mv = new THREE.Vector3();
 const fwd = new THREE.Vector3(), right = new THREE.Vector3(), want = new THREE.Vector3(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
 // i: input snapshot, g: gyro deltas {yaw,pitch}, aimHand: 0..1 (R2 raises the ring hand)
 export function updatePlayer(dt, i, g, aimHand) {
@@ -59,7 +61,7 @@ export function updatePlayer(dt, i, g, aimHand) {
     player.vel.z += (want.z - player.vel.z) * (1 - Math.exp(-dt * 10));
     player.vel.y -= 22 * dt;
   }
-  player.pos.addScaledVector(player.vel, dt);
+  movePlayer(player.pos, _mv.copy(player.vel).multiplyScalar(dt), EYE); // trees, walls and heavy props stop you; light props get shoved
   player.grounded = player.pos.y <= ground;
   if (player.grounded) { player.pos.y = ground; if (player.vel.y < 0) player.vel.y = 0; }
   player.pos.y = Math.min(player.pos.y, 400);

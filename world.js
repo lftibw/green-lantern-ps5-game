@@ -11,6 +11,10 @@ import { settings } from './settings.js';
 await RAPIER.init();
 export { RAPIER };
 export const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+export const events = new RAPIER.EventQueue(false); // contact-force events, drained once per frame by sim/impacts.js
+export const props = []; // { body, mesh, kind } dynamic world props (crate, rail, bale, truck) for sim/ to register
+export const trunks = []; // fixed tree-trunk colliders
+export let terrainCollider = null;
 export const bodies = []; // { body, mesh, p0,q0,p1,q1 } — interpolated between physics steps when rendered
 export const GU = { uTime: { value: 0 }, uPush: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] } };
 export const LANTERN = new THREE.Vector3(38, 0, -62);
@@ -100,7 +104,7 @@ function pbr(id, repeat = 1, o = {}) {
   };
   const m = new THREE.Mesh(g, mat);
   m.receiveShadow = true; scene.add(m);
-  physics.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array(p.array), new Uint32Array(g.index.array)).setFriction(0.9));
+  terrainCollider = physics.createCollider(RAPIER.ColliderDesc.trimesh(new Float32Array(p.array), new Uint32Array(g.index.array)).setFriction(0.9));
   // far plains to the horizon (no collider, fogged)
   const far = new THREE.Mesh(new THREE.RingGeometry(250, 3000, 64, 1).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a7650, roughness: 1 }));
   far.position.y = -0.05; far.receiveShadow = false; scene.add(far);
@@ -150,21 +154,22 @@ function hayTex() {
 const hayMat = std({ map: hayTex(), roughness: 0.95 });
 
 // ---------- dynamic props ----------
-function addBody(mesh, desc, colliders) {
+function addBody(mesh, desc, colliders, kind = 'prop') {
   mesh.traverse((o) => { o.castShadow = o.receiveShadow = true; }); scene.add(mesh);
   const body = physics.createRigidBody(desc.setTranslation(mesh.position.x, mesh.position.y, mesh.position.z).setRotation(mesh.quaternion));
   colliders.forEach((c) => physics.createCollider(c, body));
   track(body, mesh);
+  props.push({ body, mesh, kind });
   return body;
 }
 const bale = (x, z, rotY = Math.random() * 3) => {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.3, 28), hayMat);
   m.rotation.set(0, rotY, Math.PI / 2); m.position.set(x, height(x, z) + 0.78, z);
-  addBody(m, RAPIER.RigidBodyDesc.dynamic().setLinearDamping(0.1).setAngularDamping(1.5).setSleeping(true), [RAPIER.ColliderDesc.cylinder(0.65, 0.75).setDensity(180).setFriction(0.8)]);
+  addBody(m, RAPIER.RigidBodyDesc.dynamic().setLinearDamping(0.1).setAngularDamping(1.5).setSleeping(true), [RAPIER.ColliderDesc.cylinder(0.65, 0.75).setDensity(180).setFriction(0.8)], 'bale');
 };
 const crate = (x, y, z, s = 0.9) => {
   const m = new THREE.Mesh(boxM(s, s, s), woodMat); m.position.set(x, y, z);
-  addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(s / 2, s / 2, s / 2).setDensity(120).setFriction(0.7)]);
+  addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(s / 2, s / 2, s / 2).setDensity(120).setFriction(0.7)], 'crate');
 };
 for (let k = 0; k < 14; k++) { const a = k * 0.9; bale(-14 + Math.cos(a) * (8 + k), -26 + Math.sin(a) * 6 - k * 1.5); }
 { const bx = 11, bz = -18, y0 = height(bx, bz) + 0.45; for (let r = 0; r < 4; r++) for (let c = 0; c < 4 - r; c++) crate(bx + (c - (3 - r) / 2) * 0.92, y0 + r * 0.9, bz); }
@@ -172,7 +177,7 @@ for (let k = 0; k < 14; k++) { const a = k * 0.9; bale(-14 + Math.cos(a) * (8 + 
 for (let k = 0; k < 12; k++) {
   const z = -6 - k * 4, x = 9.5, y = height(x, z);
   addStatic(boxM(0.16, 1.4, 0.16), woodMat, x, y + 0.55, z); fixedCol(x, y + 0.55, z, 0.08, 0.7, 0.08);
-  if (k < 11) { const m = new THREE.Mesh(boxM(0.07, 0.16, 4), woodMat); m.position.set(x, height(x, z - 2) + 1.0, z - 2); addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(0.035, 0.08, 2).setDensity(500)]); }
+  if (k < 11) { const m = new THREE.Mesh(boxM(0.07, 0.16, 4), woodMat); m.position.set(x, height(x, z - 2) + 1.0, z - 2); addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(0.035, 0.08, 2).setDensity(500)], 'rail'); }
 }
 // old green pickup (rusted), heavy
 export const truck = new THREE.Group();
@@ -185,7 +190,7 @@ export const truck = new THREE.Group();
   truck.add(body, cab, glass, head);
   for (const [wx, wz] of [[-0.95, 1.6], [0.95, 1.6], [-0.95, -1.6], [0.95, -1.6]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 20), std({ color: 0x151515 })); w.rotation.z = Math.PI / 2; w.position.set(wx, -0.3, wz); truck.add(w); }
   truck.position.set(x, height(x, z) + 0.75, z); truck.rotation.y = 0.3;
-  addBody(truck, RAPIER.RigidBodyDesc.dynamic().setAngularDamping(0.5), [RAPIER.ColliderDesc.cuboid(1, 0.75, 2.5).setDensity(260).setFriction(0.9)]);
+  addBody(truck, RAPIER.RigidBodyDesc.dynamic().setAngularDamping(0.5), [RAPIER.ColliderDesc.cuboid(1, 0.75, 2.5).setDensity(260).setFriction(0.9)], 'truck');
   const hl = new THREE.SpotLight(0xfff2c8, 0, 40, 0.5, 0.6); hl.position.set(0, 0.35, 2.5); hl.target.position.set(0, -0.5, 10); truck.add(hl, hl.target);
   truck.userData = { hl, lamp };
 }
@@ -250,10 +255,17 @@ const trees = [];
     const t = new Tree(); t.loadPreset(name); t.options.seed = 1000 + names.indexOf(name) * 77; t.generate();
     t.update(0); trees.push(t);
     const n = spots[name].length;
+    // trunk size from the generated mesh: widest vertex in the bottom 1.5 m, trunk ≈ lower 40% of the tree
+    let tr = 0.15, top = 0; { const pa = t.branchesMesh.geometry.attributes.position;
+      for (let v = 0; v < pa.count; v++) { const y = pa.getY(v); top = Math.max(top, y); if (y < 1.5) tr = Math.max(tr, Math.hypot(pa.getX(v), pa.getZ(v))); } }
+    tr = Math.min(tr, 0.8); const trunkH = Math.max(2, top * 0.4);
+    const scales = spots[name].map(() => 0.8 + Math.random() * 0.45), rots = spots[name].map(() => Math.random() * 6.28); // shared by branches + leaves so they line up
     for (const part of [t.branchesMesh, t.leavesMesh]) {
       const im = new THREE.InstancedMesh(part.geometry, part.material, n);
-      spots[name].forEach(([x, z], i) => { q.setFromAxisAngle(up, Math.random() * 6.28); const s = 0.8 + Math.random() * 0.45; m4.compose(new THREE.Vector3(x, height(x, z) - 0.2, z), q, sc.set(s, s, s)); im.setMatrixAt(i, m4); });
+      spots[name].forEach(([x, z], i) => { q.setFromAxisAngle(up, rots[i]); const s = scales[i]; m4.compose(new THREE.Vector3(x, height(x, z) - 0.2, z), q, sc.set(s, s, s)); im.setMatrixAt(i, m4); });
       im.castShadow = im.receiveShadow = true;
+      if (part === t.branchesMesh) spots[name].forEach(([x, z], i) => { const s = scales[i], hh = trunkH * s / 2, y = height(x, z) - 0.2;
+        trunks.push(physics.createCollider(RAPIER.ColliderDesc.capsule(Math.max(0.1, hh - tr * s), tr * s).setTranslation(x, y + hh, z).setFriction(0.9))); });
       if (part === t.leavesMesh) { // EZ-Tree's leaf wind shader replaces project_vertex and drops instanceMatrix: put it back
         const orig = part.material.onBeforeCompile;
         part.material.onBeforeCompile = (sh, r) => { orig(sh, r); sh.vertexShader = sh.vertexShader.replace('mvPosition = modelViewMatrix * mvPosition;', '#ifdef USE_INSTANCING\n mvPosition = instanceMatrix * mvPosition;\n#endif\n mvPosition = modelViewMatrix * mvPosition;'); };
@@ -382,7 +394,7 @@ export let physAlpha = 0; // how far between the last two physics states this fr
 export function stepPhysics(dt, beforeStep) {
   acc = Math.min(acc + dt, 0.1); // cap: no spiral of death after a hitch
   while (acc >= STEP) {
-    beforeStep?.(STEP); physics.step(); acc -= STEP;
+    beforeStep?.(STEP); physics.step(events); acc -= STEP;
     for (const b of bodies) {
       b.p0.copy(b.p1); b.q0.copy(b.q1);
       const t = b.body.translation(), r = b.body.rotation();

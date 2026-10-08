@@ -8,6 +8,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { scene } from './gfx.js';
 import { physics, RAPIER, GU, track, untrack } from './world.js';
 import { settings } from './settings.js';
+import { tagBody, untagBody } from './sim/impacts.js';
+import { steerWeighty } from './sim/willdrive.js';
 
 const GREEN = new THREE.Color(0.06, 1.0, 0.22);
 
@@ -142,6 +144,7 @@ export function create(g, at, quat) {
   track(body, mesh);
   g.colliders.forEach((d) => physics.createCollider(d.setDensity(g.density ?? 450).setFriction(0.8).setRestitution(0.1), body));
   const c = { kind: g.name ?? 'free', behavior: g.behavior, qOff: g.qOff ?? new THREE.Quaternion(), level: !!g.level, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, extStrain: 0, integ: 1, push: 0, punch: 0 };
+  tagBody(body, 'light', c);
   list.push(c);
   if (list.length > 6) dissolve(list.find((x) => x !== c && x !== held) ?? list[0], 0.4);
   return c;
@@ -158,9 +161,11 @@ export function release(c = held, vel) {
 export function dissolve(c, t = 0.6) { if (held === c) held = null; c.life = Math.min(c.life, t); c.dying = true; }
 
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Vector3();
-// called every physics step: steer the held construct toward where your will puts it
-export function steer(target, targetQ) {
+// called every physics step: steer the held construct toward where your will puts it.
+// Default: force-capped spring (sim/willdrive.js) so mass matters. settings.willDrive = false → old velocity steer.
+export function steer(target, targetQ, r2 = 1, charge = 1, dt = 1 / 60) {
   if (!held) return;
+  if (settings.willDrive !== false) return steerWeighty(held, target, targetQ, r2, charge, dt);
   const b = held.body, t = b.translation(), r = b.rotation();
   _p.set(target.x - t.x, target.y - t.y, target.z - t.z);
   const err = _p.length();
@@ -194,7 +199,7 @@ export function update(dt) {
     }
     if (c.life <= 0) {
       scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mat.dispose();
-      untrack(c.body); physics.removeRigidBody(c.body); list.splice(k, 1);
+      untagBody(c.body); untrack(c.body); physics.removeRigidBody(c.body); list.splice(k, 1);
       if (held === c) held = null;
     }
   }
