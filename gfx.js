@@ -35,7 +35,7 @@ export const renderer = new THREE.WebGLRenderer({ antialias: false, powerPrefere
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NeutralToneMapping; // ACES washed the daytime sky to grey-white; Neutral keeps real blues
 renderer.toneMappingExposure = 1;
 document.body.prepend(renderer.domElement);
 
@@ -155,7 +155,8 @@ export function setSky(p) {
     const u = m.material.uniforms;
     u.lit.value.set(sea.lit); u.shade.value.set(sea.shade); u.fogC.value.set(p.fog ?? 0xcfe3ff); u.sunD.value.copy(sunDir);
   });
-  motes.material.color.set(p.motes ?? 0xfff1c8).multiplyScalar(2.5);
+  motes.visible = p.motes != null; // fireflies/motes only where a preset asks for them
+  if (motes.visible) motes.material.color.set(p.motes).multiplyScalar(2.5);
 }
 
 function buildClouds(n, color) {

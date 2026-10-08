@@ -92,9 +92,10 @@ function pbr(id, repeat = 1, o = {}) {
       vec2 u1 = vMapUv, u2 = mat2(0.8, -0.6, 0.6, 0.8) * vMapUv * 0.29 + 0.37;
       vec3 soil = mix(texture2D(map, u1).rgb, texture2D(map, u2).rgb, 0.4);
       vec3 grass = mix(texture2D(tGrass, u1 * 1.3).rgb, texture2D(tGrass, u2).rgb, 0.4);
-      vec3 stubble = soil * vec3(1.55, 1.25, 0.72); // harvested-straw ground under the wheat
-      vec3 c = mix(soil, stubble, vMix.x * 0.85);
-      c = mix(c, grass * vec3(1.05, 1.0, 0.85), vMix.y);
+      float lum = dot(soil, vec3(0.333));
+      vec3 straw = vec3(0.8, 0.64, 0.36) * (0.55 + lum * 1.3); // beyond the stalk ring the field still reads golden
+      vec3 c = mix(soil, straw, vMix.x * 0.9);
+      c = mix(c, grass * vec3(0.82, 1.0, 0.58) * 1.1, vMix.y);  // late-summer pasture: olive, not brown
       diffuseColor.rgb *= c * mix(0.82, 1.12, vMix.z);`);
   };
   const m = new THREE.Mesh(g, mat);
@@ -335,14 +336,14 @@ let stars, moon;
 // ---------- time of day ----------
 const TIMES = {
   day: {
-    sky: { sun: [38, 215], turbidity: 2.6, rayleigh: 1.3, mie: 0.004, fog: 0xb9cde6, fogDensity: 0.0024, sunColor: 0xfff0d8, sunIntensity: 3.6,
-      hemiSky: 0xbcd6ff, hemiGround: 0x6e5c3c, hemiIntensity: 0.65, envIntensity: 1, exposure: 0.85, clouds: 0, sea: null, motes: 0xfff6d0,
+    sky: { sun: [38, 215], turbidity: 2, rayleigh: 2.5, mie: 0.004, fog: 0xb9cde6, fogDensity: 0.0024, sunColor: 0xfff0d8, sunIntensity: 3.6,
+      hemiSky: 0xbcd6ff, hemiGround: 0x6e5c3c, hemiIntensity: 0.65, envIntensity: 1, exposure: 0.6, clouds: 0, sea: null, motes: null,
       grade: { tint: [1.02, 1, 0.97], sat: 1.06, vignette: 0.28, contrast: 1.05 } },
-    cloud: { sun: 0xfff6ea, shade: 0x9aa6bc, cover: 0.48 }, night: 0, starVis: false,
+    cloud: { sun: 0xfff6ea, shade: 0x8f9bb3, cover: 0.52 }, night: 0, starVis: false,
   },
   night: {
     sky: { gradient: [0x030713, 0x0e1a36, 0x223a66], sun: [24, 210], fog: 0x0a1428, fogDensity: 0.0075, sunColor: 0xaecbff, sunIntensity: 2.2,
-      hemiSky: 0x4a6aa0, hemiGround: 0x2a2014, hemiIntensity: 0.9, envIntensity: 0.8, exposure: 1.5, clouds: 0, sea: null, motes: 0xd6ff7a,
+      hemiSky: 0x4a6aa0, hemiGround: 0x2a2014, hemiIntensity: 0.9, envIntensity: 0.8, exposure: 1.0, clouds: 0, sea: null, motes: 0xd6ff7a,
       grade: { tint: [0.95, 1, 1.08], sat: 1.05, vignette: 0.45, contrast: 1.08 } },
     cloud: { sun: 0x2a3550, shade: 0x0a0f1c, cover: 0.62 }, night: 1, starVis: true,
   },
