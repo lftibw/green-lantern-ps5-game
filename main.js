@@ -6,7 +6,7 @@ import { camera, render, followSun, renderer, scene } from './gfx.js';
 import * as G from './gfx.js';
 import { stepPhysics, skyFollow, GU, LANTERN, lantern, updateWorld, setTime, timeOfDay, STEP, physAlpha } from './world.js';
 import * as F from './fear.js';
-import { player, updatePlayer, ringTip, hand } from './player.js';
+import { player, updatePlayer, ringTip, hand, FLIGHT } from './player.js';
 import * as C from './constructs.js';
 import voText from './tools/vo.txt?raw';
 import { classify } from './doodle.js';
@@ -93,7 +93,7 @@ const kb = () => !P.pad.connected;
 const HINTS = {
   draw: () => (kb() ? 'Press G and draw anything with the mouse. Close the shape for a solid, leave it open for a rod.' : 'Draw anything on the touchpad. Lift your finger and the ring builds it.'),
   push: () => (kb() ? 'Hold E (R2) to push it with your will · Q pulls back · Z lets go · H throws' : 'Squeeze R2 to push it with your will · L2 pulls back · L1 lets go · jab the controller to throw'),
-  fly: () => (kb() ? 'Hold Space to take off · X to descend · C to boost' : 'Hold ✕ to take off · ◯ descends · R1 boosts'),
+  fly: () => (kb() ? 'Space jumps · Space again in the air (or hold it) flies · W + look to cruise · C boosts · X brakes/sinks' : '✕ jumps · ✕ again in the air (or hold) flies · stick forward + look to cruise · R1 boosts · ◯ brakes/sinks'),
   fist: () => (kb() ? 'J summons a fist. Tap E hard to punch.' : '□ summons a fist. Pull R2 through the click to punch.'),
   free: () => '',
 };
@@ -439,4 +439,4 @@ const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { suit, tf, powerUp, powerDown, city, G, F, dread: F.dread, fear: F.fear, renderer, scene, W: { props, trunks, statics, height, RAPIER }, sim: { onImpact, BREAK, PERF }, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { FLIGHT, suit, tf, powerUp, powerDown, city, G, F, dread: F.dread, fear: F.fear, renderer, scene, W: { props, trunks, statics, height, RAPIER }, sim: { onImpact, BREAK, PERF }, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

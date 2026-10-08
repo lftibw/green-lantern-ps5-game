@@ -9,7 +9,7 @@ export const SU = { // shared uniforms (body + first-person arms)
   uForm: { value: 0 }, uFormMax: { value: 2.6 }, uRing: { value: new THREE.Vector3() }, uMask: { value: 0 }, uTime: { value: 0 },
   uEmblem: { value: null }, uEyeL: { value: new THREE.Vector3(0.033, 1.676, 0.09) }, uEyeR: { value: new THREE.Vector3(-0.033, 1.676, 0.09) }, uChest: { value: new THREE.Vector3(0, 1.33, 0.12) },
 };
-export const suit = { orbit: 0, ready: false, body: null, mixer: null, actions: {}, ringBone: null, ringMesh: null, bones: [], tp: 0, tpWanted: false, tpForced: false, suited: false };
+export const suit = { boneBy: {}, hipsY: 1, model: '', orbit: 0, ready: false, body: null, mixer: null, actions: {}, ringBone: null, ringMesh: null, bones: [], tp: 0, tpWanted: false, tpForced: false, suited: false };
 
 // ---------- the emblem: an original lantern sigil (ring + lantern bars), drawn on a canvas ----------
 function emblemTexture() {
@@ -45,22 +45,30 @@ const SUIT_GLSL = `
 
 function patchSuit(sh, skinned) {
   Object.assign(sh.uniforms, SU);
-  sh.vertexShader = 'varying vec3 vObj; varying vec3 vW;\n' + sh.vertexShader.replace(skinned ? '#include <skinning_vertex>' : '#include <begin_vertex>', `${skinned ? '#include <skinning_vertex>' : '#include <begin_vertex>'}
-    vObj = position; vW = (modelMatrix * vec4(transformed, 1.)).xyz;`);
+  sh.vertexShader = (skinned ? 'attribute vec3 aObj;\n' : '') + 'varying vec3 vObj; varying vec3 vW;\n' + sh.vertexShader.replace(skinned ? '#include <skinning_vertex>' : '#include <begin_vertex>', `${skinned ? '#include <skinning_vertex>' : '#include <begin_vertex>'}
+    vObj = ${skinned ? 'aObj' : 'position'}; vW = (modelMatrix * vec4(transformed, 1.)).xyz;`);
   sh.fragmentShader = SUIT_GLSL + sh.fragmentShader
     .replace('#include <color_fragment>', `#include <color_fragment>
       vec3 o = vObj; float ax = abs(o.x);
       // ---- civilian: John's olive henley, dark jeans, dark skin, short hair ----
       bool head = o.y > 1.52, hands = ax > 0.665, legs = o.y < 0.95;
-      vec3 civ = legs ? vec3(0.09, 0.13, 0.22) : vec3(0.15, 0.17, 0.12);
-      if (head || hands) civ = vec3(0.24, 0.15, 0.1);
-      if (o.y > 1.745) civ = vec3(0.03);
-      if (o.y < 0.09) civ = vec3(0.05);
+      #ifdef CIV_TEX
+        vec3 civ = diffuseColor.rgb;                      // John's own clothes and skin from the model texture
+      #else
+        vec3 civ = legs ? vec3(0.09, 0.13, 0.22) : vec3(0.15, 0.17, 0.12);
+        if (head || hands) civ = vec3(0.24, 0.15, 0.1);
+        if (o.y > 1.745) civ = vec3(0.03);
+        if (o.y < 0.09) civ = vec3(0.05);
+      #endif
       // ---- suit: matte black base, layered dark-green panels, the chest sigil ----
       float seam; float pan = panels(o, seam);
       vec3 suitC = mix(vec3(0.012, 0.014, 0.013), vec3(0.02, 0.17, 0.07), pan);
-      if (head && !(o.y > 1.745)) suitC = vec3(0.24, 0.15, 0.1);               // face stays John's (mask below)
-      if (o.y > 1.745) suitC = vec3(0.03);
+      #ifdef CIV_TEX
+        if (head) suitC = civ;                                                  // his own face and hair stay (mask below)
+      #else
+        if (head && !(o.y > 1.745)) suitC = vec3(0.24, 0.15, 0.1);
+        if (o.y > 1.745) suitC = vec3(0.03);
+      #endif
       vec2 eu = vec2((o.x - uChest.x) / 0.19 + 0.5, (o.y - uChest.y) / 0.19 + 0.5);
       float emb = (o.z > 0.03 && eu.x > 0. && eu.x < 1. && eu.y > 0. && eu.y < 1.) ? texture2D(uEmblem, eu).r : 0.;
       // ---- domino mask + eyes (forms last, from the bridge of the nose outward) ----
@@ -86,37 +94,60 @@ function patchSuit(sh, skinned) {
       totalEmissiveRadiance += edge * G * (0.8 + lines * 3.5) + spark * G * 3.;`)
     .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(0.85, 0.55, suited);');
 }
-export function suitMaterial(skinned) {
-  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0.05 });
+export function suitMaterial(skinned, map = null) {
+  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0.05, map });
+  if (map) m.defines = { CIV_TEX: '' };
   m.onBeforeCompile = (sh) => patchSuit(sh, skinned);
-  m.customProgramCacheKey = () => 'suit' + skinned;
+  m.customProgramCacheKey = () => 'suit' + skinned + !!map;
   return m;
 }
 
-// ---------- body ----------
-const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4();
-try {
-  const gltf = await new GLTFLoader().loadAsync('/models/Xbot.glb');
-  const body = gltf.scene; body.visible = false;
-  body.traverse((o) => {
-    if (o.isSkinnedMesh) { o.material = suitMaterial(true); o.castShadow = true; o.frustumCulled = false; }
-    if (o.isBone) suit.bones.push(o);
-    if (o.isBone && /RightHandMiddle1$/.test(o.name)) suit.ringBone = o; // GLTFLoader strips ':' from 'mixamorig:…'
-  });
-  // eye + chest positions from the bind pose (bone world matrix = inverse of its bind inverse)
-  const sk = body.getObjectByProperty('type', 'SkinnedMesh').skeleton;
-  const bindPos = (name, out) => { const i = sk.bones.findIndex((b) => b.name.endsWith(name.split(':').pop())); if (i >= 0) out.setFromMatrixPosition(_m.copy(sk.boneInverses[i]).invert()); return out; };
-  bindPos('mixamorig:LeftEye', SU.uEyeL.value); bindPos('mixamorig:RightEye', SU.uEyeR.value);
-  bindPos('mixamorig:Spine2', SU.uChest.value); SU.uChest.value.y += 0.1;
-  // ring on the right middle finger
-  if (suit.ringBone) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.0035, 8, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.24, 1, 0.43).multiplyScalar(6) }));
-    ring.rotation.y = Math.PI / 2; suit.ringBone.add(ring); suit.ringMesh = ring;
-  }
-  suit.mixer = new THREE.AnimationMixer(body);
-  for (const clip of gltf.animations) { const a = suit.mixer.clipAction(clip); suit.actions[clip.name] = a; if (/idle|walk|run/.test(clip.name)) { a.play(); a.setEffectiveWeight(clip.name === 'idle' ? 1 : 0); } }
-  scene.add(body); suit.body = body; suit.ready = true;
-} catch (e) { console.warn('suit: X Bot model missing (run sh tools/fetch_models.sh); third person disabled', e); }
+// ---------- body: a realistic Mixamo-rigged man (three.js 'Soldier'); X Bot as fallback ----------
+const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
+export const pivot = new THREE.Group(); // at the hips: yaw/pitch/roll for flight happen here
+const MODELS = [{ url: '/models/Soldier.glb', facing: 0, hide: /visor/i }, { url: '/models/Xbot.glb', facing: Math.PI, hide: null }];
+for (const M of MODELS) {
+  try {
+    const gltf = await new GLTFLoader().loadAsync(M.url);
+    const body = gltf.scene;
+    body.updateMatrixWorld(true);
+    // normalised bind-pose coords (metres, y up, +z front) for the suit regions: model space, turned to face +z
+    const toNorm = new THREE.Matrix4().makeRotationY(M.facing === 0 ? Math.PI : 0);
+    let hipsY = 1.0;
+    body.traverse((o) => {
+      if (o.isSkinnedMesh) {
+        if (M.hide && M.hide.test(o.name)) { o.visible = false; return; }
+        _m2.multiplyMatrices(toNorm, o.matrixWorld); // geometry → model (bind) → normalised
+        const p = o.geometry.attributes.position, a = new Float32Array(p.count * 3);
+        for (let i = 0; i < p.count; i++) { _v.fromBufferAttribute(p, i).applyMatrix4(_m2); a[i * 3] = _v.x; a[i * 3 + 1] = _v.y; a[i * 3 + 2] = _v.z; }
+        o.geometry.setAttribute('aObj', new THREE.BufferAttribute(a, 3));
+        o.material = suitMaterial(true, o.material.map ?? null); o.castShadow = true; o.frustumCulled = false;
+      }
+      if (o.isBone) { suit.bones.push(o); suit.boneBy[o.name.replace(/^mixamorig:?/, '')] = o; }
+      if (o.isBone && /RightHandMiddle1$/.test(o.name)) suit.ringBone = o; // GLTFLoader strips ':' from 'mixamorig:…'
+    });
+    // eyes + chest from bind-pose bones, in the same normalised space
+    const sm = body.getObjectByProperty('type', 'SkinnedMesh'), sk = sm.skeleton;
+    _m2.multiplyMatrices(toNorm, sm.matrixWorld);
+    const bindPos = (name, out) => { const i = sk.bones.findIndex((b) => b.name.endsWith(name)); if (i < 0) return null; out.setFromMatrixPosition(_m.copy(sk.boneInverses[i]).invert()).applyMatrix4(_m2); return out; };
+    const head = bindPos('Head', new THREE.Vector3()), hips = bindPos('Hips', new THREE.Vector3());
+    if (hips) hipsY = hips.y;
+    if (!bindPos('LeftEye', SU.uEyeL.value) && head) { SU.uEyeL.value.set(0.033, head.y + 0.085, head.z + 0.09); SU.uEyeR.value.set(-0.033, head.y + 0.085, head.z + 0.09); }
+    else bindPos('RightEye', SU.uEyeR.value);
+    if (bindPos('Spine2', SU.uChest.value)) { SU.uChest.value.y += 0.1; SU.uChest.value.z += 0.12; }
+    if (suit.ringBone) {
+      const k = 1 / suit.ringBone.getWorldScale(_v).x; // ring sized in metres whatever the rig's units
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.0125 * k, 0.0035 * k, 8, 18), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.24, 1, 0.43).multiplyScalar(6) }));
+      ring.rotation.y = Math.PI / 2; suit.ringBone.add(ring); suit.ringMesh = ring;
+    }
+    suit.mixer = new THREE.AnimationMixer(body);
+    for (const clip of gltf.animations) { const n = clip.name.toLowerCase(), a = suit.mixer.clipAction(clip); suit.actions[n] = a; if (/^(idle|walk|run)$/.test(n)) { a.play(); a.setEffectiveWeight(n === 'idle' ? 1 : 0); } }
+    body.rotation.y = M.facing; body.position.y = -hipsY; // the model hangs from the hips pivot
+    pivot.add(body); pivot.visible = false; scene.add(pivot);
+    suit.body = body; suit.hipsY = hipsY; suit.model = M.url; suit.ready = true;
+    break;
+  } catch (e) { console.warn('suit: could not load', M.url, '(run sh tools/fetch_models.sh)', e.message); }
+}
 
 // ---------- first person: suited forearms + both hands (re-dresses player.js's view model) ----------
 export function dressViewmodel(hand, ringTip) {
@@ -150,29 +181,62 @@ export function dressViewmodel(hand, ringTip) {
 
 // ---------- per frame: body pose/anim, third-person camera, ring position ----------
 const UP = new THREE.Vector3(0, 1, 0), fwd = new THREE.Vector3(), right = new THREE.Vector3(), eye = new THREE.Vector3(), want = new THREE.Vector3(), chest = new THREE.Vector3(), _mL = new THREE.Matrix4();
-let animW = { idle: 1, walk: 0, run: 0 };
+// raycast: (from, dir, maxDist) → hit distance or maxDist (passed in so suit.js stays physics-agnostic)
+// aim a bone so it points from itself toward its child along `dir` (pivot space), blended by w. Allocation-free.
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _t = new THREE.Vector3(), _qa = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qi = new THREE.Quaternion();
+function aim(name, child, dir, w) {
+  const B = suit.boneBy[name], C = suit.boneBy[child]; if (!B || !C || w <= 0.001) return;
+  B.getWorldPosition(_a); C.getWorldPosition(_b); _d.subVectors(_b, _a).normalize();
+  _t.copy(dir).normalize().applyQuaternion(pivot.quaternion);
+  _qa.setFromUnitVectors(_d, _t); _qa.slerp(_qi.identity(), 1 - w);
+  B.getWorldQuaternion(_qw); _qw.premultiply(_qa);
+  B.parent.getWorldQuaternion(_qp); B.quaternion.copy(_qp.invert().multiply(_qw));
+  B.updateMatrixWorld(true);
+}
+const D = (x, y, z) => new THREE.Vector3(x, y, z);
+const POSE = { // pivot-space directions (-z = where you're flying, +y = towards the head)
+  cruise: [['RightArm', 'RightForeArm', D(0.05, 1, -0.25)], ['RightForeArm', 'RightHand', D(0.02, 1, -0.2)], ['LeftArm', 'LeftForeArm', D(0.12, -1, 0.18)], ['LeftForeArm', 'LeftHand', D(0.06, -1, 0.22)],
+    ['RightUpLeg', 'RightLeg', D(-0.05, -1, 0.08)], ['RightLeg', 'RightFoot', D(-0.03, -1, 0.1)], ['LeftUpLeg', 'LeftLeg', D(0.06, -1, 0.04)], ['LeftLeg', 'LeftFoot', D(0.04, -1, 0.35)]],
+  hover: [['RightArm', 'RightForeArm', D(-0.45, -1, 0.05)], ['LeftArm', 'LeftForeArm', D(0.45, -1, 0.05)], ['RightLeg', 'RightFoot', D(0, -1, 0.18)], ['LeftLeg', 'LeftFoot', D(0, -1, 0.05)]],
+};
+let animW = { idle: 1, walk: 0, run: 0 }, cruiseW = 0, hoverW = 0, bYaw = 0, bPitch = 0, bRoll = 0;
+const _e = new THREE.Euler(0, 0, 0, 'YXZ'), vdir = new THREE.Vector3();
+const angLerp = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
 // raycast: (from, dir, maxDist) → hit distance or maxDist (passed in so suit.js stays physics-agnostic)
 export function updateSuit(dt, player, raycast) {
   const target = suit.tpForced || suit.tpWanted ? 1 : 0;
   suit.tp += (target - suit.tp) * (1 - Math.exp(-dt * (suit.tpForced ? 5 : 7)));
   SU.uTime.value += dt;
   if (!suit.ready) return;
-  const b = suit.body;
-  b.visible = suit.tp > 0.02;
+  pivot.visible = suit.tp > 0.02;
   if (suit.leftHand) { const fp = suit.tp < 0.5; suit.leftHand.visible = suit.rightHand.visible = fp; }
-  // body under the eye, facing where you look
-  b.position.set(player.pos.x, player.pos.y - 1.75, player.pos.z);
-  const hs = Math.hypot(player.vel.x, player.vel.z);
-  b.rotation.set(player.flying ? -Math.min(1.25, hs / 30) : 0, player.yaw + Math.PI, 0, 'YXZ');
-  if (player.flying) b.position.y += 0.6;
+  const hs = Math.hypot(player.vel.x, player.vel.z), sp = player.vel.length();
+  // pose weights: cruising = horizontal superhero pose along the flight path; hovering = upright, arms loose
+  const cK = player.flying ? THREE.MathUtils.smoothstep(sp, 7, 18) : 0;
+  cruiseW += (cK - cruiseW) * (1 - Math.exp(-dt * 4));
+  hoverW += ((player.flying ? 1 - cK : 0) - hoverW) * (1 - Math.exp(-dt * 4));
+  // pivot at the hips; heading follows velocity when cruising, the camera otherwise
+  if (sp > 1) vdir.copy(player.vel).normalize(); else vdir.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const velYaw = Math.atan2(-vdir.x, -vdir.z), wantYaw = cruiseW > 0.3 ? velYaw : player.yaw;
+  const wantPitch = -(Math.PI / 2 - Math.asin(THREE.MathUtils.clamp(vdir.y, -1, 1))) * cruiseW - (player.flying ? Math.min(0.3, hs / 40) : 0) * (1 - cruiseW);
+  const wantRoll = THREE.MathUtils.clamp(player.turnRate * 0.35, -0.9, 0.9) * cruiseW;
+  const k = 1 - Math.exp(-dt * 6);
+  bYaw = angLerp(bYaw, wantYaw, k); bPitch += (wantPitch - bPitch) * k; bRoll += (wantRoll - bRoll) * k;
+  pivot.quaternion.setFromEuler(_e.set(bPitch, bYaw, bRoll));
+  pivot.position.set(player.pos.x, player.pos.y - 1.75 + suit.hipsY, player.pos.z);
   const run = !player.flying && hs > 5.5, walk = !player.flying && hs > 0.6 && !run;
-  for (const [k, on] of [['idle', !run && !walk], ['walk', walk], ['run', run]]) { animW[k] += ((on ? 1 : 0) - animW[k]) * (1 - Math.exp(-dt * 8)); suit.actions[k]?.setEffectiveWeight(animW[k]); }
-  suit.mixer.update(b.visible ? dt : 0);
+  for (const [n, on] of [['idle', !run && !walk], ['walk', walk], ['run', run]]) { animW[n] += ((on ? 1 : 0) - animW[n]) * (1 - Math.exp(-dt * 8)); suit.actions[n]?.setEffectiveWeight(animW[n]); }
+  if (pivot.visible) {
+    suit.mixer.update(dt);
+    pivot.updateMatrixWorld(true);
+    for (const [bn, cn, d] of POSE.cruise) aim(bn, cn, d, cruiseW);
+    for (const [bn, cn, d] of POSE.hover) aim(bn, cn, d, hoverW * 0.6);
+  }
   // third-person camera: over-the-shoulder, pulled in if a wall is in the way
   if (suit.tp > 0.001) {
     camera.getWorldDirection(fwd); right.crossVectors(fwd, UP).normalize();
     eye.copy(player.pos);
-    want.copy(fwd).multiplyScalar(-4.4).addScaledVector(UP, 0.7).addScaledVector(right, 0.55);
+    want.copy(fwd).multiplyScalar(-(5.2 + Math.min(4, sp * 0.06))).addScaledVector(UP, 0.45).addScaledVector(right, 0.6); // over the shoulder; chase camera pulls back at speed
     if (suit.orbit > 0) { want.applyAxisAngle(UP, suit.orbit * 2.6); want.multiplyScalar(1 - suit.orbit * 0.35); } // transformation: swing round to the front
     const len = want.length(); want.normalize();
     const d = raycast ? Math.max(0.6, raycast(eye, want, len) - 0.3) : len;

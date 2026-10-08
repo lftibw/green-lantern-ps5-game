@@ -3,3 +3,6 @@
 cd "$(dirname "$0")/.." && mkdir -p public/models
 curl -fsSL -A "lantern-game-dev/1.0" -o public/models/Xbot.glb https://raw.githubusercontent.com/mrdoob/three.js/r169/examples/models/gltf/Xbot.glb
 ls -la public/models
+# Mixamo-rigged realistic man (three.js examples) used as John
+curl -fsSL -A "lantern-game-dev/1.0" -o public/models/Soldier.glb https://raw.githubusercontent.com/mrdoob/three.js/r169/examples/models/gltf/Soldier.glb
+ls -la public/models
