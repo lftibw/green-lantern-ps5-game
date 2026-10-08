@@ -14,6 +14,7 @@ export const physics = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 export const events = new RAPIER.EventQueue(false); // contact-force events, drained once per frame by sim/impacts.js
 export const props = []; // { body, mesh, kind } dynamic world props (crate, rail, bale, truck) for sim/ to register
 export const trunks = []; // fixed tree-trunk colliders
+export const statics = []; // { collider, mat } other fixed colliders; main.js tags them via sim/impacts.js
 export let terrainCollider = null;
 export const bodies = []; // { body, mesh, p0,q0,p1,q1 } — interpolated between physics steps when rendered
 export const GU = { uTime: { value: 0 }, uPush: { value: [new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0), new THREE.Vector4(0, -99, 0, 0)] } };
@@ -136,7 +137,10 @@ function boxM(w, h, d) {
   for (let k = 0; k < p.count; k++) { const ax = Math.abs(n.getX(k)), ay = Math.abs(n.getY(k)); uv.setXY(k, ax > 0.5 ? p.getZ(k) : p.getX(k), ay > 0.5 ? p.getZ(k) : p.getY(k)); }
   return g;
 }
-const fixedCol = (x, y, z, hx, hy, hz, ry = 0) => physics.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0))));
+const fixedCol = (x, y, z, hx, hy, hz, ry = 0, mat = 'wood') => {
+  const collider = physics.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0))));
+  statics.push({ collider, mat }); return collider;
+};
 
 // ---------- materials ----------
 const barnRed = pbr('distressed_painted_planks', 0.5, { color: 0xb8443a, metalness: 0 });
@@ -172,12 +176,12 @@ const crate = (x, y, z, s = 0.9) => {
   addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(s / 2, s / 2, s / 2).setDensity(120).setFriction(0.7)], 'crate');
 };
 for (let k = 0; k < 14; k++) { const a = k * 0.9; bale(-14 + Math.cos(a) * (8 + k), -26 + Math.sin(a) * 6 - k * 1.5); }
-{ const bx = 11, bz = -18, y0 = height(bx, bz) + 0.45; for (let r = 0; r < 4; r++) for (let c = 0; c < 4 - r; c++) crate(bx + (c - (3 - r) / 2) * 0.92, y0 + r * 0.9, bz); }
+{ const bx = 11, bz = -18, y0 = height(bx, bz) + 0.45; for (let r = 0; r < 4; r++) for (let c = 0; c < 4 - r; c++) crate(bx + (c - (3 - r) / 2) * 0.92, y0 + 0.01 + r * 0.91, bz); } // 1 cm settle gaps: exact contact made spawn jolts break crates
 // fence: posts static (merged), rails dynamic
 for (let k = 0; k < 12; k++) {
   const z = -6 - k * 4, x = 9.5, y = height(x, z);
   addStatic(boxM(0.16, 1.4, 0.16), woodMat, x, y + 0.55, z); fixedCol(x, y + 0.55, z, 0.08, 0.7, 0.08);
-  if (k < 11) { const m = new THREE.Mesh(boxM(0.07, 0.16, 4), woodMat); m.position.set(x, height(x, z - 2) + 1.0, z - 2); addBody(m, RAPIER.RigidBodyDesc.dynamic(), [RAPIER.ColliderDesc.cuboid(0.035, 0.08, 2).setDensity(500)], 'rail'); }
+  if (k < 11) { const m = new THREE.Mesh(boxM(0.07, 0.16, 4), woodMat); m.position.set(x, height(x, z - 2) + 1.0, z - 2); addBody(m, RAPIER.RigidBodyDesc.fixed(), [RAPIER.ColliderDesc.cuboid(0.035, 0.08, 1.9).setDensity(500)], 'rail'); } // nailed: fixed until a hit shatters it (sim/breakables.js); 1.9 half-length clears the posts
 }
 // old green pickup (rusted), heavy
 export const truck = new THREE.Group();
@@ -212,11 +216,11 @@ const night = { lights: [] };
   night.lights.push([wl, 30], [win.material, 4, 'emissiveIntensity']);
   // water tower
   const tx = -52, tz = -38, ty = height(tx, tz);
-  for (const [lx, lz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { addStatic(new THREE.CylinderGeometry(0.16, 0.2, 14, 10), tankMat, tx + lx, ty + 7, tz + lz); fixedCol(tx + lx, ty + 7, tz + lz, 0.2, 7, 0.2); }
+  for (const [lx, lz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) { addStatic(new THREE.CylinderGeometry(0.16, 0.2, 14, 10), tankMat, tx + lx, ty + 7, tz + lz); fixedCol(tx + lx, ty + 7, tz + lz, 0.2, 7, 0.2, 0, 'metal'); }
   for (const yy of [4, 9]) for (const [a, b, r] of [[0, -2, 0], [0, 2, 0], [-2, 0, Math.PI / 2], [2, 0, Math.PI / 2]]) addStatic(new THREE.CylinderGeometry(0.06, 0.06, 4, 6), tankMat, tx + a, ty + yy, tz + b, r, 0, Math.PI / 2);
   const tank = new THREE.CylinderGeometry(4.2, 4.2, 5, 40); { const uv = tank.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * 8, uv.getY(k) * 1.5); }
   addStatic(tank, tankMat, tx, ty + 16.5, tz); addStatic(new THREE.ConeGeometry(4.4, 2, 40), roofMat, tx, ty + 20, tz);
-  physics.createCollider(RAPIER.ColliderDesc.cylinder(3.5, 4.2).setTranslation(tx, ty + 17.5, tz));
+  statics.push({ collider: physics.createCollider(RAPIER.ColliderDesc.cylinder(3.5, 4.2).setTranslation(tx, ty + 17.5, tz)), mat: 'metal' });
   const lbl = makeSign('RUSHVILLE'); lbl.position.set(tx, ty + 16.5, tz + 4.25); scene.add(lbl);
   // telephone poles + sagging wires along the road
   const wireMat = std({ color: 0x1a1a1a, roughness: 0.6 }), poleMat = woodMat;
@@ -259,13 +263,18 @@ const trees = [];
     let tr = 0.15, top = 0; { const pa = t.branchesMesh.geometry.attributes.position;
       for (let v = 0; v < pa.count; v++) { const y = pa.getY(v); top = Math.max(top, y); if (y < 1.5) tr = Math.max(tr, Math.hypot(pa.getX(v), pa.getZ(v))); } }
     tr = Math.min(tr, 0.8); const trunkH = Math.max(2, top * 0.4);
-    const scales = spots[name].map(() => 0.8 + Math.random() * 0.45), rots = spots[name].map(() => Math.random() * 6.28); // shared by branches + leaves so they line up
+    // EZ-Tree presets aren't in metres (these are 65-79 units tall): scale each tree to a real 15-22 m
+    let crownW = 0; { const pa = t.branchesMesh.geometry.attributes.position; for (let v = 0; v < pa.count; v++) crownW = Math.max(crownW, Math.hypot(pa.getX(v), pa.getZ(v))); }
+    const scales = spots[name].map(() => (15 + Math.random() * 7) / top), rots = spots[name].map(() => Math.random() * 6.28); // shared by branches + leaves so they line up
     for (const part of [t.branchesMesh, t.leavesMesh]) {
       const im = new THREE.InstancedMesh(part.geometry, part.material, n);
       spots[name].forEach(([x, z], i) => { q.setFromAxisAngle(up, rots[i]); const s = scales[i]; m4.compose(new THREE.Vector3(x, height(x, z) - 0.2, z), q, sc.set(s, s, s)); im.setMatrixAt(i, m4); });
       im.castShadow = im.receiveShadow = true;
       if (part === t.branchesMesh) spots[name].forEach(([x, z], i) => { const s = scales[i], hh = trunkH * s / 2, y = height(x, z) - 0.2;
-        trunks.push(physics.createCollider(RAPIER.ColliderDesc.capsule(Math.max(0.1, hh - tr * s), tr * s).setTranslation(x, y + hh, z).setFriction(0.9))); });
+        const r = Math.max(0.18, tr * s);
+        trunks.push(physics.createCollider(RAPIER.ColliderDesc.capsule(Math.max(0.1, hh - r), r).setTranslation(x, y + hh, z).setFriction(0.9)));
+        // crown: a ball around the main limbs so flying into the canopy stops you (leaves past it stay soft)
+        trunks.push(physics.createCollider(RAPIER.ColliderDesc.ball(crownW * s * 0.42).setTranslation(x, y + top * s * 0.62, z).setFriction(0.6))); });
       if (part === t.leavesMesh) { // EZ-Tree's leaf wind shader replaces project_vertex and drops instanceMatrix: put it back
         const orig = part.material.onBeforeCompile;
         part.material.onBeforeCompile = (sh, r) => { orig(sh, r); sh.vertexShader = sh.vertexShader.replace('mvPosition = modelViewMatrix * mvPosition;', '#ifdef USE_INSTANCING\n mvPosition = instanceMatrix * mvPosition;\n#endif\n mvPosition = modelViewMatrix * mvPosition;'); };
@@ -298,7 +307,7 @@ export const lantern = new THREE.Group();
   const pl = new THREE.PointLight(0x3dff6e, 60, 28, 2); pl.position.y = 1.2; lantern.add(pl);
   lantern.userData.light = pl; lantern.userData.core = core;
   scene.add(lantern);
-  physics.createCollider(RAPIER.ColliderDesc.cylinder(1, 0.6).setTranslation(LANTERN.x, y + 1, LANTERN.z));
+  statics.push({ collider: physics.createCollider(RAPIER.ColliderDesc.cylinder(1, 0.6).setTranslation(LANTERN.x, y + 1, LANTERN.z)), mat: 'metal' });
 }
 flushStatic();
 

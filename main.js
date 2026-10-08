@@ -13,10 +13,10 @@ import { classify } from './doodle.js';
 import { build as LIB, KNOWN } from './library.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { settings, save } from './settings.js';
-import { props, trunks } from './world.js';
+import { props, trunks, statics, height, RAPIER } from './world.js';
 import { tag, tagBody, onImpact, updateImpacts, impactSound } from './sim/impacts.js';
-import { register as breakable, checkBreak, updateBreakables } from './sim/breakables.js';
-import { updatePerf } from './sim/perf.js';
+import { register as breakable, checkBreak, updateBreakables, BREAK } from './sim/breakables.js';
+import { updatePerf, PERF } from './sim/perf.js';
 import { updateTuning } from './sim/tuning.js';
 
 // ---------- world interaction: materials, breakables, impact feedback ----------
@@ -26,6 +26,7 @@ for (const p of props) {
   else tagBody(p.body, p.kind === 'truck' ? 'metal' : p.kind === 'bale' ? 'hay' : 'wood', p);
 }
 for (const t of trunks) tag(t, 'wood');
+for (const s of statics) tag(s.collider, s.mat); // barn/posts/poles = wood, tower/lantern = metal; terrain falls back to 'dirt'
 onImpact((h) => {
   checkBreak(h);
   P.sfx3d(impactSound(h), h.pos);
@@ -362,7 +363,7 @@ function frame(now) {
 }
 
 const fctx = { i: null, ring, player, nearLantern: false, alpha: 0, now: 0 };
-const fixedStep = () => { C.steer(target, targetQ, prevR2, ring.charge * (1 - 0.5 * F.fear.level), STEP); F.fixedStep(STEP, player); }; // fear weakens your will drive
+const fixedStep = () => { C.steer(target, targetQ, prevR2, ring.charge, STEP, F.fear.level); F.fixedStep(STEP, player); }; // fear weakens your will: × (1 − 0.5·fear)
 const hintEl = $('hint'), ringBar = $('ring').firstElementChild, pctEl = $('pct'), fearBar = $('fear').firstElementChild;
 let hudC = -1, hudF = -1;
 function hud(c, f) { // DOM writes only when a value visibly changes
@@ -404,4 +405,4 @@ const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { G, F, dread: F.dread, fear: F.fear, renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { G, F, dread: F.dread, fear: F.fear, renderer, scene, W: { props, trunks, statics, height, RAPIER }, sim: { onImpact, BREAK, PERF }, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

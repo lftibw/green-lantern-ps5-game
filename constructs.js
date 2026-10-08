@@ -163,9 +163,9 @@ export function dissolve(c, t = 0.6) { if (held === c) held = null; c.life = Mat
 const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Vector3();
 // called every physics step: steer the held construct toward where your will puts it.
 // Default: force-capped spring (sim/willdrive.js) so mass matters. settings.willDrive = false → old velocity steer.
-export function steer(target, targetQ, r2 = 1, charge = 1, dt = 1 / 60) {
+export function steer(target, targetQ, r2 = 1, charge = 1, dt = 1 / 60, fear = 0) {
   if (!held) return;
-  if (settings.willDrive !== false) return steerWeighty(held, target, targetQ, r2, charge, dt);
+  if (settings.willDrive !== false) return steerWeighty(held, target, targetQ, r2, charge, dt, fear);
   const b = held.body, t = b.translation(), r = b.rotation();
   _p.set(target.x - t.x, target.y - t.y, target.z - t.z);
   const err = _p.length();

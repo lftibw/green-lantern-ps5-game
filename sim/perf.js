@@ -1,8 +1,9 @@
 // Auto quality: watches frame time and trades resolution for smoothness before it ever stutters.
 // Steps the render scale between 0.6x and the preset's pixel ratio. Shows FPS with the backtick panel.
 import { renderer, _dbg } from '../gfx.js';
+import { settings, save } from '../settings.js';
 
-export const PERF = { target: 1 / 58, slack: 1 / 75, min: 0.6, step: 0.1, fps: 60, scale: 1, enabled: true };
+export const PERF = { target: 1 / 58, slack: 1 / 75, min: 0.6, step: 0.1, fps: 60, scale: 1, enabled: settings.autoQuality !== false };
 let ema = 1 / 60, bad = 0, good = 0, maxRatio = null;
 
 export function updatePerf(dt) {

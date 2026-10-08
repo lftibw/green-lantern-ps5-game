@@ -61,7 +61,8 @@ export function updatePlayer(dt, i, g, aimHand) {
     player.vel.z += (want.z - player.vel.z) * (1 - Math.exp(-dt * 10));
     player.vel.y -= 22 * dt;
   }
-  movePlayer(player.pos, _mv.copy(player.vel).multiplyScalar(dt), EYE); // trees, walls and heavy props stop you; light props get shoved
+  const moved = movePlayer(player.pos, _mv.copy(player.vel).multiplyScalar(dt), EYE); // trees, walls and heavy props stop you; light props get shoved
+  if (dt > 0) { player.vel.x = moved.x / dt; player.vel.z = moved.z / dt; if (player.flying) player.vel.y = moved.y / dt; } // hitting something kills your speed into it (no slipping round trunks)
   player.grounded = player.pos.y <= ground;
   if (player.grounded) { player.pos.y = ground; if (player.vel.y < 0) player.vel.y = 0; }
   player.pos.y = Math.min(player.pos.y, 400);

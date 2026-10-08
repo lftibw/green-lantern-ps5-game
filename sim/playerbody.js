@@ -10,7 +10,8 @@ cc.setApplyImpulsesToDynamicBodies(true);
 cc.setCharacterMass(90);
 cc.setSlideEnabled(true);
 cc.setMaxSlopeClimbAngle(Math.PI / 3);
-const col = physics.createCollider(RAPIER.ColliderDesc.capsule(HALF, RADIUS).setTranslation(0, -100, 0));
+// sensor: the controller only needs the shape; as a solid it'd be an invisible wall your own constructs bump into
+const col = physics.createCollider(RAPIER.ColliderDesc.capsule(HALF, RADIUS).setTranslation(0, -100, 0).setSensor(true));
 // hard light is yours: you pass through your own constructs; terrain handled by height()
 const include = (c) => c.handle !== terrainCollider.handle && tagOf(c.handle)?.mat !== 'light';
 

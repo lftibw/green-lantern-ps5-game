@@ -8,7 +8,7 @@ export const WILL = {
   stiffness: 45,       // spring k (1/s^2): how hard the aim point pulls
   damping: 1.0,        // 1 = critically damped (no wobble), <1 swings
   carryAccel: 4,       // m/s^2 you can always give your own construct, even with R2 released
-  pushForce: 70000,    // extra newtons at full R2 + full charge: enough to shove the truck, not toss it
+  pushForce: 34000,    // extra N at full R2 + full charge. Tuned headless (tools/test_willdrive.mjs): 3.9 t truck moves 7.7 m in 4 s at full R2, ~0 at R2 0.6
   punchForce: 140000,  // burst during a fist punch
   angStiffness: 35,
   angCarry: 60,        // rad/s^2 always available
@@ -19,10 +19,11 @@ const _d = new THREE.Vector3(), _v = new THREE.Vector3(), _a = new THREE.Vector3
 const imp = { x: 0, y: 0, z: 0 };
 
 // c: construct from constructs.js (needs body, strain, punch). r2: 0..1, charge: 0..1, dt: fixed step
-export function steerWeighty(c, target, targetQ, r2, charge, dt) {
+// fear: 0..1 from fear.js; it saps the whole will, floor included
+export function steerWeighty(c, target, targetQ, r2, charge, dt, fear = 0) {
   if (!c) return;
   const b = c.body, m = b.mass(), t = b.translation(), lv = b.linvel();
-  const will = (0.12 + 0.88 * Math.pow(r2, 1.5)) * (0.25 + 0.75 * charge); // light squeeze = gentle, full squeeze = everything
+  const will = (0.12 + 0.88 * Math.pow(r2, 1.5)) * (0.25 + 0.75 * charge) * (1 - 0.5 * fear); // light squeeze = gentle, full squeeze = everything
 
   // ---- linear: desired accel = k*x - c*v ----
   const k = WILL.stiffness, cd = 2 * Math.sqrt(k) * WILL.damping;

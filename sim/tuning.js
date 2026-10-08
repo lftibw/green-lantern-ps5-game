@@ -2,6 +2,7 @@
 import { WILL } from './willdrive.js';
 import { BREAK } from './breakables.js';
 import { PERF } from './perf.js';
+import { settings, save } from '../settings.js';
 
 const KEY = 'lantern.tuning.v1';
 const SLIDERS = [
@@ -13,7 +14,7 @@ try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved) SLIDERS.fo
 const el = document.createElement('div');
 el.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99;background:rgba(0,10,4,.82);color:#9f9;font:12px ui-monospace,monospace;padding:10px;border:1px solid #3dff6e55;border-radius:8px;display:none;width:280px';
 const fps = document.createElement('div'); el.appendChild(fps);
-const auto = document.createElement('label'); auto.innerHTML = '<input type="checkbox" checked> auto quality'; auto.firstChild.onchange = (e) => (PERF.enabled = e.target.checked); el.appendChild(auto);
+const auto = document.createElement('label'); auto.innerHTML = `<input type="checkbox"${PERF.enabled ? ' checked' : ''}> auto quality`; auto.firstChild.onchange = (e) => { PERF.enabled = settings.autoQuality = e.target.checked; save(); }; el.appendChild(auto);
 for (const [o, k, min, max] of SLIDERS) {
   const row = document.createElement('div'); row.style.marginTop = '6px';
   const v = document.createElement('span'); v.textContent = ` ${o[k]}`;

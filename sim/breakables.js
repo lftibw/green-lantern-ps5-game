@@ -7,7 +7,8 @@ import { tagBody, untagBody } from './impacts.js';
 
 const byHandle = new Map(); // collider handle -> entry
 const debris = [];
-export const BREAK = { crate: 9000, rail: 6000, board: 7000, debrisLife: 20, maxDebris: 60 };
+export const BREAK = { crate: 9000, rail: 6000, board: 7000, debrisLife: 20, maxDebris: 60, armDelay: 2 };
+let simT = 0; // ignore settling jolts for the first armDelay seconds of simulated time
 
 export function register(body, mesh, { kind = 'crate', mat = 'wood', threshold = BREAK[kind] ?? 8000, pieces = kind === 'rail' ? 3 : 5 } = {}) {
   const e = { body, mesh, kind, mat, threshold, pieces, broken: false };
@@ -17,6 +18,7 @@ export function register(body, mesh, { kind = 'crate', mat = 'wood', threshold =
 }
 
 export function checkBreak(hit) {
+  if (simT < BREAK.armDelay) return;
   for (const h of [hit.ha, hit.hb]) {
     const e = byHandle.get(h);
     if (e && !e.broken && hit.force > e.threshold) shatter(e, hit.force);
@@ -60,6 +62,7 @@ function removeDebris(k) {
   const d = debris[k]; scene.remove(d.mesh); d.mesh.geometry.dispose(); untrack(d.body); physics.removeRigidBody(d.body); debris.splice(k, 1);
 }
 export function updateBreakables(dt) {
+  simT += dt;
   for (let k = debris.length - 1; k >= 0; k--) {
     const d = debris[k]; d.life -= dt;
     if (d.life < 1) d.mesh.scale.setScalar(Math.max(0.01, d.life)); // shrink out
