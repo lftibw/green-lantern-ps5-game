@@ -1,0 +1,24 @@
+hammer
+sword
+axe
+baseball bat
+ladder
+car
+airplane
+umbrella
+cannon
+hand
+anvil
+bridge
+shovel
+wheel
+chair
+key
+lantern
+fence
+circle
+square
+triangle
+star
+line
+zigzag

@@ -21,6 +21,9 @@
   #sub b { color: var(--gl); margin-right: 6px; }
   #sketch { position: fixed; right: 22px; bottom: 90px; width: 288px; height: 162px; border-radius: 14px; border: 1px solid #3dff6e66; background: #04110a99; z-index: 3; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #sketch.on { opacity: 1; }
+  #guess { position: fixed; right: 22px; bottom: 258px; width: 288px; text-align: center; font-weight: 800; letter-spacing: 1px; color: var(--gl); text-shadow: 0 0 10px #3dff6e88; z-index: 3; font-size: 14px; pointer-events: none; }
+  #made { position: fixed; left: 50%; top: 22%; transform: translate(-50%, 8px); font-size: 34px; font-weight: 900; letter-spacing: 8px; color: var(--gl); text-shadow: 0 0 24px #3dff6e; opacity: 0; transition: opacity .3s, transform .3s; z-index: 3; pointer-events: none; }
+  #made.on { opacity: 1; transform: translate(-50%, 0); }
   #big { position: fixed; inset: 0; display: none; place-items: center; z-index: 7; background: #030713aa; }
   #big.on { display: grid; }
   #big canvas { width: min(80vw, 142vh); aspect-ratio: 16/9; border: 2px solid #3dff6e88; border-radius: 22px; background: #04110a; cursor: crosshair; }
@@ -56,7 +59,9 @@
 <div id="hud"><div id="ring"><i></i></div><div id="pct">100%</div><div class="chip" id="link"></div><div class="chip" id="batt"></div></div>
 <div id="cross"></div>
 <canvas id="sketch" width="576" height="324"></canvas>
-<div id="big"><p>Draw with the mouse. Close the shape for a solid; leave it open for a rod.</p><canvas width="1280" height="720"></canvas></div>
+<div id="guess"></div>
+<div id="made"></div>
+<div id="big"><p>Draw with the mouse: several strokes are fine. It builds after a short pause (Enter = now). Try a hammer, sword, ladder, cannon, car, wheel…</p><canvas width="1280" height="720"></canvas></div>
 <div id="oath"><div></div><small>Speak the oath into the controller mic (keyboard: hold T)</small></div>
 <div id="sub"></div>
 <div id="hint"></div>

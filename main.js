@@ -7,6 +7,10 @@ import { stepPhysics, skyFollow, GU, LANTERN, lantern } from './world.js';
 import { player, updatePlayer, ringTip, hand } from './player.js';
 import * as C from './constructs.js';
 import voText from './tools/vo.txt?raw';
+import { classify } from './doodle.js';
+import { build as LIB, KNOWN } from './library.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { settings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 const ring = { charge: 1, mode: 'play', oathChars: 0, refill: 0 };
@@ -67,47 +71,102 @@ function crickets(dt) { // procedural night: a few chirp trains from random dire
   for (let k = 0; k < 3; k++) P.sfx3d({ type: 'sine', f: 4300 + Math.random() * 300, dur: 0.035, amp: 0.025, at: k * 0.06 }, pos);
 }
 
-// ---------- drawing input (touchpad or mouse) ----------
-const sk = $('sketch'), skx = sk.getContext('2d');
-let stroke = [], wasTouch = false;
-function drawPreview(pts, cv = sk, cx = skx) {
+// ---------- drawing input (touchpad or mouse): several strokes, the ring builds after a short pause ----------
+// ponytail: pause-to-commit (COMMIT_PAUSE) + touchpad click to commit now. Tune the pause on the real pad.
+const COMMIT_PAUSE = 0.7, TRUST = 0.5; // seconds idle before building; min confidence to use a library model
+const sk = $('sketch'), skx = sk.getContext('2d'), guessEl = $('guess');
+const draw = { strokes: [], cur: null, idle: 0, guess: null };
+function drawPreview(cv = sk, cx = skx) {
   const W = cv.width, H = cv.height;
   cx.clearRect(0, 0, W, H);
   cx.strokeStyle = '#3dff6e'; cx.lineWidth = W / 90; cx.lineCap = cx.lineJoin = 'round'; cx.shadowColor = '#3dff6e'; cx.shadowBlur = 14;
-  cx.beginPath(); pts.forEach((p, k) => { const x = (p.x * 0.5 + 0.5) * W, y = (0.5 - p.y * 0.5) * H; k ? cx.lineTo(x, y) : cx.moveTo(x, y); }); cx.stroke();
+  for (const st of [...draw.strokes, draw.cur ?? []]) { cx.beginPath(); st.forEach((p, k) => { const x = (p.x * 0.5 + 0.5) * W, y = (0.5 - p.y * 0.5) * H; k ? cx.lineTo(x, y) : cx.moveTo(x, y); }); cx.stroke(); }
+  // commit countdown ring
+  if (!draw.cur && draw.strokes.length) { cx.shadowBlur = 0; cx.lineWidth = W / 120; cx.beginPath(); cx.arc(W - 22, 22, 12, -Math.PI / 2, -Math.PI / 2 + (draw.idle / COMMIT_PAUSE) * Math.PI * 2); cx.stroke(); }
 }
-function touchDraw(i) {
-  const t = i.touch;
-  if (t?.contact) {
-    stroke.push({ x: t.x, y: t.y });
-    if (stroke.length % 3 === 0) P.haptic({ type: 'sine', f: 260 + stroke.length, dur: 0.012, amp: 0.22 }, 'R');
-    sk.classList.add('on'); drawPreview(stroke);
-  } else if (wasTouch) { finishStroke(stroke); stroke = []; setTimeout(() => sk.classList.remove('on'), 400); }
-  wasTouch = !!t?.contact;
+function updateGuess() { // the ring "reads" the doodle as you draw (≈3 ms)
+  const st = [...draw.strokes, ...(draw.cur?.length > 1 ? [draw.cur] : [])];
+  if (!st.length) { draw.guess = null; guessEl.textContent = ''; return; }
+  draw.guess = classify(st.map((s) => s.map((p) => ({ x: p.x * 1.78, y: p.y }))), 2);
+  const g = draw.guess[0], known = KNOWN.has(g.name) && g.p >= TRUST;
+  guessEl.textContent = known ? `${g.name.toUpperCase()} ${Math.round(g.p * 100)}%` : `free form${g.p >= TRUST ? ` · ${g.name}` : ''}`;
 }
-// mouse sketch pad (keyboard mode / testing)
+let guessT = 0;
+function drawTick(dt, contact, pt, commitNow) {
+  if (contact) {
+    if (!draw.cur) draw.cur = [];
+    draw.cur.push(pt); draw.idle = 0;
+    if (draw.cur.length % 3 === 0) P.haptic({ type: 'sine', f: 260 + draw.cur.length, dur: 0.012, amp: 0.22 }, 'R');
+    sk.classList.add('on');
+    if ((guessT -= dt) <= 0) { guessT = 0.15; updateGuess(); }
+  } else if (draw.cur) {
+    if (draw.cur.length > 1) draw.strokes.push(draw.cur);
+    draw.cur = null; updateGuess();
+  } else if (draw.strokes.length) {
+    draw.idle += dt;
+    if (draw.idle >= COMMIT_PAUSE || commitNow) commitDrawing();
+  }
+  if (draw.cur || draw.strokes.length) drawPreview();
+}
+function commitDrawing() {
+  const strokes = draw.strokes, guess = draw.guess?.[0];
+  draw.strokes = []; draw.cur = null; draw.idle = 0;
+  setTimeout(() => { sk.classList.remove('on'); guessEl.textContent = ''; }, 500);
+  buildFrom(strokes, guess);
+}
+// mouse sketch pad (keyboard mode / testing): same multi-stroke flow, Enter builds now
 const big = $('big'), bcv = big.querySelector('canvas'), bcx = bcv.getContext('2d');
-let mouseStroke = null;
-addEventListener('keydown', (e) => { if (e.code === 'KeyG' && ring.mode === 'play') { big.classList.toggle('on'); bcx.clearRect(0, 0, bcv.width, bcv.height); } });
+const mouse = { down: false, pt: null, commit: false };
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyG' && ring.mode === 'play') { big.classList.toggle('on'); bcx.clearRect(0, 0, bcv.width, bcv.height); }
+  if (e.code === 'Enter' && big.classList.contains('on')) mouse.commit = true;
+});
 const toPad = (e) => { const r = bcv.getBoundingClientRect(); return { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: 1 - ((e.clientY - r.top) / r.height) * 2 }; };
-bcv.addEventListener('pointerdown', (e) => { mouseStroke = [toPad(e)]; bcv.setPointerCapture(e.pointerId); });
-bcv.addEventListener('pointermove', (e) => { if (mouseStroke) { mouseStroke.push(toPad(e)); drawPreview(mouseStroke, bcv, bcx); } });
-bcv.addEventListener('pointerup', () => { if (mouseStroke) { finishStroke(mouseStroke); mouseStroke = null; big.classList.remove('on'); } });
+bcv.addEventListener('pointerdown', (e) => { mouse.down = true; mouse.pt = toPad(e); bcv.setPointerCapture(e.pointerId); });
+bcv.addEventListener('pointermove', (e) => { if (mouse.down) mouse.pt = toPad(e); });
+bcv.addEventListener('pointerup', () => { mouse.down = false; });
+function inputDraw(dt, i) {
+  const pad = i.touch?.contact;
+  const contact = pad || mouse.down;
+  const pt = pad ? { x: i.touch.x, y: i.touch.y } : mouse.pt;
+  const commitNow = P.pressed('touchClick') || mouse.commit; mouse.commit = false;
+  drawTick(dt, contact, pt, commitNow);
+  if (big.classList.contains('on')) { drawPreview(bcv, bcx); if (!draw.cur && !draw.strokes.length && !contact) big.classList.remove('on'); }
+}
 
 const fwd = new THREE.Vector3(), tmp = new THREE.Vector3(), qFlip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-function spawn(kind, sketch) {
-  const radius = kind === 'fist' ? 1.6 : Math.max(sketch.w, sketch.h) / 2;
-  const cost = kind === 'fist' ? 0.05 : THREE.MathUtils.clamp(0.03 + estVolume(sketch) * 0.006, 0.03, 0.4);
+// strokes (touchpad units) → construct spec: library model if recognised, else free-form sketch
+function buildFrom(strokes, guess) {
+  const s = settings.drawScale;
+  const metres = strokes.map((st) => st.map((p) => ({ x: p.x * 1.78 * s, y: p.y * s })));
+  let spec = guess && guess.p >= TRUST && KNOWN.has(guess.name) ? LIB(guess.name, metres) : null;
+  if (!spec) spec = freeForm(strokes);
+  if (!spec) { fizzle(); return; }
+  spawn(spec);
+}
+function freeForm(strokes) { // each stroke → slab (closed) or rod (open), merged into one body
+  const parts = strokes.map((st) => C.analyse(st, strokes.length > 1 ? 0.15 : 0.6)).filter(Boolean).map((a) => (a.closed ? C.slab(a.pts) : C.rod(a.pts, a.len)));
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0];
+  const strip = (g) => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; };
+  return { geo: mergeGeometries(parts.map((p) => strip(p.geo))), colliders: parts.flatMap((p) => p.colliders), volume: parts.reduce((a, p) => a + p.volume, 0) };
+}
+function spawn(spec) {
+  spec.geo.computeBoundingSphere();
+  const radius = spec.geo.boundingSphere.radius;
+  const cost = spec.name === 'fist' ? 0.05 : THREE.MathUtils.clamp(0.03 + spec.volume * 0.006, 0.03, 0.4);
   if (ring.charge < cost) { fizzle(); once('lowAtDraw', () => say('ring_low')); return; }
   ring.charge -= cost;
   if (C.held) C.release();
   camera.getWorldDirection(fwd);
-  const base = (kind === 'fist' ? 3.6 : 3 + radius * 1.7);
+  const base = spec.name === 'fist' ? 3.6 : 3 + radius * 1.4;
+  const q = aimQuat(spec.level, spec.qOff ?? new THREE.Quaternion());
   const at = tmp.copy(camera.position).addScaledVector(fwd, base);
-  const q = camera.quaternion.clone(); if (kind === 'fist') q.multiply(qFlip);
-  const c = C.create(kind, sketch, at, q);
-  c.base = base; c.flip = kind === 'fist';
+  if (spec.level) at.y = Math.min(at.y, player.pos.y - 1.2);
+  const c = C.create(spec, at, q);
+  c.base = base; c.barrel = spec.barrel;
   C.grab(c);
+  label(spec.name && spec.name !== 'free' ? spec.name.toUpperCase() : 'FREE FORM');
   // materialise: haptic crackle rising + TV whoosh
   for (let k = 0; k < 8; k++) P.haptic({ type: 'noise', f: 300 + k * 120, lp: 400 + k * 200, dur: 0.05, amp: 0.15 + k * 0.04, at: k * 0.04 }, k % 2 ? 'L' : 'R');
   P.haptic({ type: 'sine', f: 70, f1: 140, dur: 0.4, amp: 0.5 });
@@ -115,9 +174,27 @@ function spawn(kind, sketch) {
   flashT = 0.3; P.mark('touchDraw');
   once('first', () => { say('hal_first'); setStep('push'); });
 }
-const estVolume = (s) => (s.closed ? s.w * s.h * 0.6 * Math.min(1.5, Math.min(s.w, s.h) * 0.35) : s.len * 0.05);
+const _yawOnly = new THREE.Quaternion(), _eul = new THREE.Euler();
+function aimQuat(level, qOff, out = new THREE.Quaternion()) {
+  if (level) out.copy(_yawOnly.setFromEuler(_eul.set(0, player.yaw, 0)));
+  else out.copy(camera.quaternion);
+  return out.multiply(qOff);
+}
+let labelT = 0;
+function label(t) { $('made').textContent = t; $('made').classList.add('on'); labelT = 1.6; }
 function fizzle() { P.haptic({ type: 'square', f: 70, dur: 0.15, amp: 0.4 }); P.sfx({ type: 'square', f: 180, f1: 90, dur: 0.18, amp: 0.06 }); }
-function finishStroke(pts) { const s = C.analyse(pts); if (s) spawn('stroke', s); else if (pts.length > 2) fizzle(); }
+function fireCannon(h) { // R2 through the click: a hard-light cannonball out of the barrel
+  if (ring.charge < 0.02) { fizzle(); return; }
+  ring.charge -= 0.02;
+  const dir = new THREE.Vector3(1, 0, 0).applyQuaternion(h.mesh.quaternion).normalize();
+  const mouth = h.mesh.position.clone().addScaledVector(dir, (h.barrel ?? 2) * 0.55);
+  const ball = LIB('circle', [[{ x: -0.35, y: -0.35 }, { x: 0.35, y: 0.35 }]]);
+  ball.density = 1500;
+  const b = C.create(ball, mouth, new THREE.Quaternion());
+  b.build = 0.8; C.release(b, { x: dir.x * 55, y: dir.y * 55, z: dir.z * 55 });
+  h.body.applyImpulse({ x: -dir.x * 400, y: -dir.y * 400, z: -dir.z * 400 }, true); // recoil
+  P.haptic({ type: 'sine', f: 45, dur: 0.25, amp: 1 }); P.rumble(1, 0.8); P.sfx({ type: 'noise', lp: 500, dur: 0.5, amp: 0.35 }); P.sfx({ type: 'sine', f: 60, f1: 30, dur: 0.4, amp: 0.3 });
+}
 
 // ---------- oath (John's own words, per the end of Lanterns) ----------
 const OATH = 'I am afraid, and I fly anyway. What I build, I build to hold. Light the dark, guard the weak, carry the weight. My will is the ring, and the ring is my word.';
@@ -149,12 +226,13 @@ function frame(now) {
   P.updateMic();
   const i = P.read();
   const g = P.takeGyro();
+  if (!settings.gyroLook) g.yaw = g.pitch = 0;
   const c = C.held;
 
   if (ring.mode === 'oath') { oath(dt, i); updatePlayer(dt, { ...i, mx: 0, my: 0, cross: false }, g, 0); }
   else {
-    touchDraw(i);
-    if (P.pressed('square')) { spawn('fist', null); once('fistUsed', () => setStep('free')); }
+    inputDraw(dt, i);
+    if (P.pressed('square')) { spawn({ ...C.fistGeo(), name: 'fist', qOff: qFlip.clone() }); once('fistUsed', () => setStep('free')); }
     updatePlayer(dt, i, g, c ? Math.max(i.r2, 0.35) : 0);
     // lantern
     const nearLantern = player.pos.distanceTo(tmp.set(LANTERN.x, LANTERN.y + 1.7, LANTERN.z)) < 6;
@@ -169,13 +247,15 @@ function frame(now) {
   // ---- held construct: will pushes (R2), fear... later. L2 pulls in for now ----
   if (C.held) {
     const h = C.held;
+    if (h.behavior === 'cannon' && i.r2 > 0.62 && prevR2 <= 0.62) fireCannon(h);
     if (h.kind === 'fist' && i.r2 > 0.62 && prevR2 <= 0.62) { h.punch = 0.38; P.sfx({ type: 'noise', f: 900, lp: 1600, dur: 0.25, amp: 0.15 }); P.haptic({ type: 'noise', lp: 500, dur: 0.12, amp: 0.6 }, 'R'); }
     h.punch = Math.max(0, h.punch - dt);
-    const ext = h.kind === 'fist' ? (h.punch > 0.18 ? 16 : h.punch > 0 ? 8 : 0) : Math.pow(i.r2, 1.3) * 18;
+    const ext = h.kind === 'fist' ? (h.punch > 0.18 ? 16 : h.punch > 0 ? 8 : 0) : h.behavior === 'cannon' ? 0 : Math.pow(i.r2, 1.3) * 18;
     const dist = Math.max(1.4, h.base + ext - i.l2 * (h.base - 1.4));
     camera.getWorldDirection(fwd);
     target.copy(camera.position).addScaledVector(fwd, dist);
-    targetQ.copy(camera.quaternion); if (h.flip) targetQ.multiply(qFlip);
+    aimQuat(h.level, h.qOff, targetQ);
+    if (h.level) target.y = Math.min(target.y, player.pos.y - 1.2);
     ring.charge -= dt * (0.006 + h.strain * 0.04 + i.r2 * 0.01);
     if (i.r2 > 0.5) once('pushed', () => setTimeout(() => { say('hal_throw'); }, 2500));
     if (h.strain > 0.6) once('strain', () => say('hal_strain'));
@@ -183,6 +263,7 @@ function frame(now) {
     if (throwIt || P.pressed('l1') || ring.charge <= 0) {
       if (throwIt) { C.release(h, { x: fwd.x * 32, y: fwd.y * 32 + 3, z: fwd.z * 32 }); P.sfx({ type: 'noise', f: 700, lp: 1400, dur: 0.35, amp: 0.15 }); P.haptic({ type: 'sine', f: 90, f1: 40, dur: 0.25, amp: 0.7 }); }
       else C.release(h);
+      if (h.behavior === 'roll') { const ax = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), fwd).normalize().multiplyScalar(-12); h.body.setAngvel({ x: ax.x, y: ax.y, z: ax.z }, true); }
       once('released', () => setTimeout(() => { setStep('fly'); say('hal_fly'); }, 1200));
     }
     // impacts → thump in palms + TV, scaled by velocity change
@@ -223,6 +304,7 @@ function frame(now) {
 
   // ---- controller outputs ----
   flashT = Math.max(0, flashT - dt);
+  if ((labelT -= dt) <= 0) $('made').classList.remove('on');
   const low = ring.charge < 0.2, pulse = 0.75 + 0.25 * Math.sin(now / (low ? 120 : 600));
   const k = (0.15 + ring.charge * 0.85) * pulse;
   P.light(40 * k + flashT * 400, 255 * Math.min(1, k + flashT * 2), 90 * k + flashT * 400);
@@ -232,7 +314,7 @@ function frame(now) {
   const strength = (v) => Math.round(Math.min(1, v) * 8) / 8;
   let r2;
   if (!C.held || ring.mode === 'oath') r2 = null;
-  else if (C.held.kind === 'fist') r2 = { effect: TriggerEffect.Weapon, start: 0.3, end: 0.6, strength: 0.9 };
+  else if (C.held.kind === 'fist' || C.held.behavior === 'cannon') r2 = { effect: TriggerEffect.Weapon, start: 0.3, end: 0.6, strength: 0.9 };
   else if (strain > 0.65) r2 = { effect: TriggerEffect.Vibration, position: 0.1, amplitude: strength(strain), frequency: 28 };
   else r2 = { effect: TriggerEffect.Feedback, position: 0.05, strength: strength(0.2 + Math.min(0.4, C.held.volume * 0.03) + strain * 0.5 + (1 - ring.charge) * 0.2) };
   P.triggers(C.held ? { effect: TriggerEffect.Feedback, position: 0.1, strength: 0.25 } : null, r2);
@@ -282,4 +364,4 @@ const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { player, C, P, ring, finishStroke, spawn, setStep, camera };
+window.dbg = { player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

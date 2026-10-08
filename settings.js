@@ -3,6 +3,7 @@ const KEY = 'lantern.v1';
 const DEFAULT_SETTINGS = {
   master: 0.9, music: 0.6, haptics: 1, gyroSens: 1,
   invGyroX: false, invGyroY: false, invTilt: false,
+  gyroLook: false, // user: gyro camera felt unstable → sticks only. Gyro kept for future fine-aim.
   hapticPair: '23', micGate: 0.04, quality: 'high',
   touchInvY: false, // flip if what you draw comes out upside down
   drawScale: 2.2,   // metres per touchpad half-height: a full-pad drawing ≈ 8 m wide

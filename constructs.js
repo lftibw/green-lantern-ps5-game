@@ -54,11 +54,11 @@ function resample(pts, n) {
   }
   return { pts: out, len: L };
 }
-export function analyse(raw) {
-  if (raw.length < 6) return null;
+export function analyse(raw, minLen = 0.6) {
+  if (raw.length < 3) return null;
   const s = settings.drawScale;
   const { pts, len } = resample(raw.map((p) => ({ x: p.x * 1.78 * s, y: p.y * s })), 48); // touchpad is ~16:9
-  if (len < 0.6) return null;
+  if (len < minLen) return null;
   const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
   const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
   const gap = Math.hypot(pts[0].x - pts.at(-1).x, pts[0].y - pts.at(-1).y);
@@ -66,7 +66,7 @@ export function analyse(raw) {
   return { pts, len, w, h, closed };
 }
 
-function slab(pts) {
+export function slab(pts) {
   const poly = pts.slice(0, -1).map((p) => new THREE.Vector2(p.x, p.y));
   if (THREE.ShapeUtils.isClockWise(poly)) poly.reverse();
   const A = Math.abs(THREE.ShapeUtils.area(poly));
@@ -86,7 +86,7 @@ function slab(pts) {
   }).filter(Boolean);
   return { geo, colliders, volume: A * half * 2 };
 }
-function rod(pts, len) {
+export function rod(pts, len) {
   const radius = THREE.MathUtils.clamp(len * 0.025, 0.09, 0.3);
   const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, p.y, 0)));
   const parts = [new THREE.TubeGeometry(curve, 96, radius, 12, false)];
@@ -101,7 +101,7 @@ function rod(pts, len) {
   }
   return { geo, colliders, volume: Math.PI * radius * radius * len };
 }
-function fistGeo() {
+export function fistGeo() {
   const parts = [new RoundedBoxGeometry(1.1, 1.0, 0.9, 3, 0.25)];
   for (let k = 0; k < 4; k++) { // curled fingers across the front
     const f = new THREE.CapsuleGeometry(0.17, 0.42, 6, 12); f.rotateZ(Math.PI / 2); f.scale(1, 1, 1.2);
@@ -120,11 +120,11 @@ const lights = Array.from({ length: 3 }, () => { const l = new THREE.PointLight(
 // ---------- construct lifecycle ----------
 export const list = [];
 export let held = null;
-export function create(kind, sketch, at, quat) {
-  const g = kind === 'fist' ? fistGeo() : sketch.closed ? slab(sketch.pts) : rod(sketch.pts, sketch.len);
-  if (kind !== 'fist') { // recentre on the drawing's middle
-    const c = new THREE.Vector3(); g.geo.computeBoundingBox(); g.geo.boundingBox.getCenter(c); c.z = 0;
-    g.geo.translate(-c.x, -c.y, 0); g.colliders.forEach((d) => { const t = d.translation; d.setTranslation(t.x - c.x, t.y - c.y, t.z); });
+// g: { geo, colliders, volume, density?, name?, behavior?, qOff?, level? } from slab/rod/fistGeo/library
+export function create(g, at, quat) {
+  { // recentre on the construct's middle so it pivots around what you see
+    const c = new THREE.Vector3(); g.geo.computeBoundingBox(); g.geo.boundingBox.getCenter(c);
+    g.geo.translate(-c.x, -c.y, -c.z); g.colliders.forEach((d) => { const t = d.translation; d.setTranslation(t.x - c.x, t.y - c.y, t.z - c.z); });
   }
   g.geo.computeBoundingSphere();
   const mat = hardLight();
@@ -133,8 +133,8 @@ export function create(kind, sketch, at, quat) {
   mesh.position.copy(at); mesh.quaternion.copy(quat); mesh.renderOrder = 2; scene.add(mesh);
   const body = physics.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(at.x, at.y, at.z).setRotation(quat)
     .setGravityScale(0).setLinearDamping(0.5).setAngularDamping(2).setCcdEnabled(true));
-  g.colliders.forEach((d) => physics.createCollider(d.setDensity(450).setFriction(0.8).setRestitution(0.1), body));
-  const c = { kind, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, push: 0, punch: 0 };
+  g.colliders.forEach((d) => physics.createCollider(d.setDensity(g.density ?? 450).setFriction(0.8).setRestitution(0.1), body));
+  const c = { kind: g.name ?? 'free', behavior: g.behavior, qOff: g.qOff ?? new THREE.Quaternion(), level: !!g.level, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, push: 0, punch: 0 };
   list.push(c);
   if (list.length > 6) dissolve(list.find((x) => x !== c && x !== held) ?? list[0], 0.4);
   return c;
@@ -143,9 +143,10 @@ export const grab = (c) => (held = c);
 export function release(c = held, vel) {
   if (!c) return;
   if (held === c) held = null;
-  c.body.setGravityScale(1, true); c.body.setLinearDamping(0.05); c.body.setAngularDamping(0.3);
+  if (c.behavior === 'static' && !vel) { c.body.setBodyType(RAPIER.RigidBodyType.Fixed, true); c.life = 40; return; }
+  c.body.setGravityScale(c.behavior === 'glide' ? 0.25 : 1, true); c.body.setLinearDamping(c.behavior === 'glide' ? 0.15 : 0.05); c.body.setAngularDamping(c.behavior === 'roll' ? 0.05 : 0.3);
   if (vel) c.body.setLinvel(vel, true);
-  c.life = Math.min(c.life, 7);
+  c.life = Math.min(c.life, c.behavior === 'roll' ? 14 : 9);
 }
 export function dissolve(c, t = 0.6) { if (held === c) held = null; c.life = Math.min(c.life, t); c.dying = true; }
 
@@ -183,7 +184,7 @@ export function update(dt) {
     c.mat.uniforms.uPower.value = 0.9 + c.strain * 0.6 + (held === c ? 0.15 : 0);
     if (li < lights.length && c.life > 0) {
       const l = lights[li++]; l.position.copy(c.mesh.position);
-      l.intensity = THREE.MathUtils.clamp(c.size * 9, 6, 40) * c.mat.uniforms.uBuild.value * (held === c ? 1.2 : 0.7); l.distance = 8 + c.size * 4;
+      l.intensity = THREE.MathUtils.clamp(c.size * 9, 6, 40) * c.mat.uniforms.uBuild.value * (held === c ? 1.2 : 0.7) * (c.behavior === 'light' ? 5 : 1); l.distance = (8 + c.size * 4) * (c.behavior === 'light' ? 2.5 : 1);
     }
     if (c.life <= 0) {
       scene.remove(c.mesh); c.mesh.geometry.dispose(); c.mat.dispose();
