@@ -19,16 +19,21 @@ float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
 export function hardLight(color = GREEN) {
   return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: GU.uTime, uBuild: { value: 0 }, uColor: { value: color.clone() }, uPower: { value: 1 }, uStrain: { value: 0 } },
+    uniforms: { uTime: GU.uTime, uBuild: { value: 0 }, uColor: { value: color.clone() }, uPower: { value: 1 }, uStrain: { value: 0 }, uCrack: { value: 0 }, uFlick: { value: 0 } },
     vertexShader: `varying vec3 vN, vW, vL; void main(){ vL = position; vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz;
       vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform float uTime, uBuild, uPower, uStrain; uniform vec3 uColor; varying vec3 vN, vW, vL; ${NOISE}
+    fragmentShader: `uniform float uTime, uBuild, uPower, uStrain, uCrack, uFlick; uniform vec3 uColor; varying vec3 vN, vW, vL; ${NOISE}
       void main(){
         vec3 v = normalize(cameraPosition - vW);
         float fres = pow(max(1. - abs(dot(normalize(vN), v)), 0.), 2.2);
         float flow = n3(vL * 2.2 + vec3(0., -uTime * 1.6, uTime * 0.4));
         float lines = smoothstep(0.975, 1., sin(vL.y * 9. + flow * 5. - uTime * 4.) * 0.5 + 0.5);
         float flick = 0.94 + 0.06 * sin(uTime * 37. + vL.x * 3.);
+        flick *= 1. - uFlick * 0.55 * step(0.82, fract(sin(floor(uTime * 24.) * 12.9898) * 43758.5453)); // fear: stutters
+        // fear cracks: yellow veins along noise ridges, spreading as integrity falls
+        vec3 wq = vL * 3.2 + n3(vL * 1.3) * 1.6;                                   // warped → branching paths
+        float ridge = max(1. - abs(n3(wq + 7.1) * 2. - 1.), 1. - abs(n3(wq * 2.3 - 3.7) * 2. - 1.));
+        float vein = smoothstep(1. - (0.012 + uCrack * 0.05), 1., ridge) * step(0.001, uCrack); // thin lines that thicken as it fails
         // materialise: dissolve front sweeps in, its edge burns white-hot
         float d = n3(vL * 3.5) * 0.85 + 0.15 * (vL.y * 0.1 + 0.5);
         if (d > uBuild * 1.15) discard;
@@ -36,6 +41,7 @@ export function hardLight(color = GREEN) {
         float rim = pow(max(1. - abs(dot(normalize(vN), v)), 0.), 6.); // thin hot silhouette
         vec3 c = uColor * (0.035 + fres * 0.55 + rim * 4.5 + lines * 0.35 + flow * 0.03) * flick * uPower;
         c += vec3(0.6, 1., 0.6) * edge * 5. + vec3(1., 0.85, 0.3) * uStrain * rim * 1.5;
+        c = mix(c, vec3(3.4, 2.3, 0.12) * (0.7 + 0.3 * flick), vein);
         gl_FragColor = vec4(max(c, 0.), 1.);
       }`,
   });
@@ -135,7 +141,7 @@ export function create(g, at, quat) {
     .setGravityScale(0).setLinearDamping(0.5).setAngularDamping(2).setCcdEnabled(true));
   track(body, mesh);
   g.colliders.forEach((d) => physics.createCollider(d.setDensity(g.density ?? 450).setFriction(0.8).setRestitution(0.1), body));
-  const c = { kind: g.name ?? 'free', behavior: g.behavior, qOff: g.qOff ?? new THREE.Quaternion(), level: !!g.level, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, push: 0, punch: 0 };
+  const c = { kind: g.name ?? 'free', behavior: g.behavior, qOff: g.qOff ?? new THREE.Quaternion(), level: !!g.level, mesh, mat, body, size: g.geo.boundingSphere.radius, volume: g.volume, build: 0, age: 0, life: Infinity, strain: 0, extStrain: 0, integ: 1, push: 0, punch: 0 };
   list.push(c);
   if (list.length > 6) dissolve(list.find((x) => x !== c && x !== held) ?? list[0], 0.4);
   return c;
@@ -170,7 +176,7 @@ export function steer(target, targetQ) {
   const ang = 2 * Math.acos(Math.min(1, _q.w)), s = Math.sqrt(1 - _q.w * _q.w) || 1;
   _e.set(_q.x / s, _q.y / s, _q.z / s).multiplyScalar(ang * 8);
   b.setAngvel({ x: _e.x, y: _e.y, z: _e.z }, true);
-  held.strain += (blocked - held.strain) * 0.1;
+  held.strain += (Math.min(1, blocked + held.extStrain) - held.strain) * 0.1; // extStrain: the Dread leaning on it
 }
 
 export function update(dt) {

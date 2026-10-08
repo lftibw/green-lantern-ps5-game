@@ -14,7 +14,9 @@ python3 -I tools/fetch_tex.py   # CC0 textures, ~21 MB (see Assets)
 npm run dev                     # then open the printed localhost URL in Chrome
 ```
 
-Keyboard and mouse also work: WASD to move, arrows to look, Space to fly, G to draw with the mouse, E for R2, H to throw, N to switch day/night.
+Keyboard and mouse also work: WASD to move, arrows to look, Space to fly, G to draw with the mouse, E for R2, H to throw, N to switch day/night, B to summon the Dread, V to surge with your voice.
+
+**Fear:** the Dread (a yellow smoke wraith) hunts you within 40 m at night. Fear cracks your constructs until they shatter, stiffens R2, quickens a heartbeat in your palms, turns the lightbar yellow and drains colour from the screen. Hold R2 hard for 2 s while afraid (or speak into the mic) to fire a **Will surge**: it throws the Dread back and cuts fear by 0.5, for 15% charge on a 10 s cooldown.
 
 ## Tech
 
@@ -39,6 +41,7 @@ Keyboard and mouse also work: WASD to move, arrows to look, Space to fly, G to d
 
 ```
 index.html        page, HUD, overlays
+fear.js           the Dread, fear meter, construct cracking/shatter, heartbeat, Will surge
 main.js           game loop, ring charge, drawing → construct, oath, haptics/audio, HUD
 pad.js            DualSense I/O: input, triggers, LEDs, haptics-as-audio, mic, gyro, thrust
 gfx.js            renderer, sky, lights, fog, post-processing, quality presets

@@ -4,7 +4,8 @@ import * as P from './pad.js';
 import { TriggerEffect, MuteLedMode } from './pad.js';
 import { camera, render, followSun, renderer, scene } from './gfx.js';
 import * as G from './gfx.js';
-import { stepPhysics, skyFollow, GU, LANTERN, lantern, updateWorld, setTime, timeOfDay } from './world.js';
+import { stepPhysics, skyFollow, GU, LANTERN, lantern, updateWorld, setTime, timeOfDay, STEP, physAlpha } from './world.js';
+import * as F from './fear.js';
 import { player, updatePlayer, ringTip, hand } from './player.js';
 import * as C from './constructs.js';
 import voText from './tools/vo.txt?raw';
@@ -242,10 +243,10 @@ function frame(now) {
       if (P.pressed('tri')) { ring.mode = 'oath'; ring.oathChars = 0; $('oath').classList.add('on'); if (C.held) C.release(); }
     }
     P.muteLed(nearLantern ? MuteLedMode.Pulse : MuteLedMode.Off);
-    $('hint').textContent = nearLantern ? (kb() ? 'Y: recite the oath' : '△ Recite the oath to recharge') : HINTS[step]();
+    hintEl.textContent = F.fear.hintT > 0 ? F.SURGE_HINT : nearLantern ? (kb() ? 'Y: recite the oath' : '△ Recite the oath to recharge') : HINTS[step]();
   }
 
-  // ---- held construct: will pushes (R2), fear... later. L2 pulls in for now ----
+  // ---- held construct: will pushes (R2), L2 pulls in; fear (fear.js) cracks it ----
   if (C.held) {
     const h = C.held;
     if (h.behavior === 'cannon' && i.r2 > 0.62 && prevR2 <= 0.62) fireCannon(h);
@@ -274,8 +275,13 @@ function frame(now) {
   prevR2 = i.r2;
 
   // physics: steer the held construct every fixed step
-  stepPhysics(dt, () => C.steer(target, targetQ));
+  stepPhysics(dt, fixedStep);
   C.update(dt);
+  // ---- fear: the Dread, the meter, cracks, heartbeat, will surge ----
+  fctx.i = i; fctx.alpha = physAlpha; fctx.now = now;
+  fctx.nearLantern = player.pos.distanceToSquared(tmp.set(LANTERN.x, LANTERN.y, LANTERN.z)) < 144;
+  if (F.frame(dt, fctx)) { flashT = 0.6; label('WILL SURGE'); }
+  const fearL = F.fear.level;
 
   // wheat parts around you and your constructs
   GU.uPush.value[0].set(player.pos.x, player.pos.y - 1.75, player.pos.z, player.flying ? 2.5 + Math.max(0, 6 - (player.pos.y - 1.75 - 0)) * 0.3 : 0.8);
@@ -308,7 +314,7 @@ function frame(now) {
   if ((labelT -= dt) <= 0) $('made').classList.remove('on');
   const low = ring.charge < 0.2, pulse = 0.75 + 0.25 * Math.sin(now / (low ? 120 : 600));
   const k = (0.15 + ring.charge * 0.85) * pulse;
-  P.light(40 * k + flashT * 400, 255 * Math.min(1, k + flashT * 2), 90 * k + flashT * 400);
+  P.light(THREE.MathUtils.lerp(40 * k, 230 * k, fearL) + flashT * 400, 255 * Math.min(1, k * (1 - fearL * 0.2) + flashT * 2), 90 * k * (1 - fearL) + flashT * 400); // green → yellow with fear
   ledBlink += dt;
   const bars = Math.ceil(ring.charge * 5);
   P.leds(P.ledCount(low && ledBlink % 0.6 < 0.3 ? bars - 1 : bars));
@@ -317,7 +323,7 @@ function frame(now) {
   if (!C.held || ring.mode === 'oath') r2 = null;
   else if (C.held.kind === 'fist' || C.held.behavior === 'cannon') r2 = { effect: TriggerEffect.Weapon, start: 0.3, end: 0.6, strength: 0.9 };
   else if (strain > 0.65) r2 = { effect: TriggerEffect.Vibration, position: 0.1, amplitude: strength(strain), frequency: 28 };
-  else r2 = { effect: TriggerEffect.Feedback, position: 0.05, strength: strength(0.2 + Math.min(0.4, C.held.volume * 0.03) + strain * 0.5 + (1 - ring.charge) * 0.2) };
+  else r2 = { effect: TriggerEffect.Feedback, position: 0.05, strength: strength(0.2 + Math.min(0.4, C.held.volume * 0.03) + strain * 0.5 + (1 - ring.charge) * 0.2 + fearL * 0.4) };
   P.triggers(C.held ? { effect: TriggerEffect.Feedback, position: 0.1, strength: 0.25 } : null, r2);
   P.flush(dt);
   if (P.pad.connected && i.headphone !== flags.hp) { flags.hp = i.headphone; P.setHeadphoneRoute(i.headphone); }
@@ -328,13 +334,21 @@ function frame(now) {
   lantern.userData.light.intensity = 60 + (ring.mode === 'oath' ? 80 * (ring.oathChars / OATH.length) : 0) + ring.refill * 120;
   updateTether();
   skyFollow(camera); followSun(player.pos); updateWorld(now / 1000, player.pos);
-  $('ring').firstElementChild.style.width = `${ring.charge * 100}%`;
-  $('pct').textContent = `${Math.round(ring.charge * 100)}%`;
+  hud(ring.charge, fearL);
   if (P.pad.connected && i.battery != null) $('batt').textContent = `🔋 ${Math.round(i.battery * 100)}%`;
   P.setListener(camera);
   render(dt);
 }
 
+const fctx = { i: null, ring, player, nearLantern: false, alpha: 0, now: 0 };
+const fixedStep = () => { C.steer(target, targetQ); F.fixedStep(STEP, player); };
+const hintEl = $('hint'), ringBar = $('ring').firstElementChild, pctEl = $('pct'), fearBar = $('fear').firstElementChild;
+let hudC = -1, hudF = -1;
+function hud(c, f) { // DOM writes only when a value visibly changes
+  const cq = Math.round(c * 200), fq = Math.round(f * 200);
+  if (cq !== hudC) { hudC = cq; ringBar.style.width = `${cq / 2}%`; pctEl.textContent = `${Math.round(c * 100)}%`; }
+  if (fq !== hudF) { hudF = fq; fearBar.style.width = `${fq / 2}%`; }
+}
 function pushWheat(k, cc) { const u = GU.uPush.value[k]; if (cc) u.set(cc.mesh.position.x, cc.mesh.position.y - cc.size * 0.6, cc.mesh.position.z, cc.size * 1.2 + 0.6); else u.set(0, -99, 0, 0); }
 
 // energy tether from the ring to the held construct
@@ -362,10 +376,11 @@ async function start(withPad) {
 }
 $('connect').onclick = () => start(true);
 $('keys').onclick = () => start(false);
+addEventListener('keydown', (e) => { if (e.code === 'KeyB') label(F.toggleDread() ? 'THE DREAD' : 'DREAD GONE'); });
 addEventListener('keydown', (e) => { if (e.code === 'KeyN') { setTime(timeOfDay === 'day' ? 'night' : 'day'); settings.time = timeOfDay; save(); } });
 let kbThrow = false;
 const takeKbThrow = () => { const t = kbThrow; kbThrow = false; return t; };
 addEventListener('keydown', (e) => { if (e.code === 'KeyH') kbThrow = true; });
 camera.position.copy(player.pos);
 requestAnimationFrame(frame);
-window.dbg = { G, renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };
+window.dbg = { G, F, dread: F.dread, fear: F.fear, renderer, scene, player, C, P, ring, draw, buildFrom, commitDrawing, spawn, setStep, camera, classify };

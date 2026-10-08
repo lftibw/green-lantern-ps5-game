@@ -12,6 +12,9 @@
   #hud { position: fixed; left: 20px; top: 18px; z-index: 2; pointer-events: none; display: flex; gap: 12px; align-items: center; }
   #ring { width: 220px; height: 10px; border-radius: 6px; background: #ffffff18; overflow: hidden; outline: 1px solid #3dff6e55; }
   #ring i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #1fae47, var(--gl)); box-shadow: 0 0 14px var(--gl); transition: width .15s; }
+  .bars { display: flex; flex-direction: column; gap: 5px; }
+  #fear { width: 220px; height: 4px; border-radius: 3px; background: #ffffff12; overflow: hidden; }
+  #fear i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b8901a, #ffd23d); box-shadow: 0 0 10px #ffd23d; }
   #pct { font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 10px #3dff6e88; min-width: 48px; }
   .chip { font-size: 12px; opacity: .6; }
   #cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #3dff6eaa; box-shadow: 0 0 6px var(--gl); z-index: 2; pointer-events: none; }
@@ -53,10 +56,10 @@
     <p><b>Plug the DualSense in with USB-C</b> for the speaker, mic and HD haptics. Use Chrome.</p>
     <button id="connect">Connect DualSense</button>
     <button id="keys" class="alt">Keyboard + mouse</button>
-    <small>Keyboard: WASD move · arrows look · Space fly/up · X down · Shift run · C boost · G draw with the mouse · E R2 push · Q L2 pull · Z let go · H throw · J fist · Y interact · T speak oath · N day/night</small>
+    <small>Keyboard: WASD move · arrows look · Space fly/up · X down · Shift run · C boost · G draw with the mouse · E R2 push · Q L2 pull · Z let go · H throw · J fist · Y interact · T speak oath · N day/night · B summon the Dread · V voice surge</small>
   </div>
 </div>
-<div id="hud"><div id="ring"><i></i></div><div id="pct">100%</div><div class="chip" id="link"></div><div class="chip" id="batt"></div></div>
+<div id="hud"><div class="bars"><div id="ring"><i></i></div><div id="fear"><i></i></div></div><div id="pct">100%</div><div class="chip" id="link"></div><div class="chip" id="batt"></div></div>
 <div id="cross"></div>
 <canvas id="sketch" width="576" height="324"></canvas>
 <div id="guess"></div>

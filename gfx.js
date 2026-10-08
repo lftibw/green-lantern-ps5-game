@@ -144,8 +144,9 @@ export function setSky(p) {
   hemi.color.set(p.hemiSky ?? 0xbfdcff); hemi.groundColor.set(p.hemiGround ?? 0x5d7f52); hemi.intensity = p.hemiIntensity ?? 0.6;
   renderer.toneMappingExposure = p.exposure ?? 1;
   grade.uniforms.tint.value.set(...(p.grade?.tint ?? [1, 1, 1]));
-  grade.uniforms.sat.value = p.grade?.sat ?? 1.08;
-  grade.uniforms.vignette.value = p.grade?.vignette ?? 0.35;
+  gradeBase.sat = grade.uniforms.sat.value = p.grade?.sat ?? 1.08;
+  gradeBase.vig = grade.uniforms.vignette.value = p.grade?.vignette ?? 0.35;
+  setFearGrade(gradeBase.fear);
   grade.uniforms.contrast.value = p.grade?.contrast ?? 1.05;
   buildClouds(p.clouds ?? 14, p.cloudColor ?? 0xffffff);
   const sea = p.sea; // { lit, shade } or null
@@ -195,6 +196,13 @@ const grade = new ShaderPass({
 });
 
 let composer, aoPass, bloomPass;
+const gradeBase = { sat: 1.08, vig: 0.35, fear: 0 };
+// fear drains colour and closes the edges in (applied on top of the time-of-day grade)
+export function setFearGrade(f) {
+  gradeBase.fear = f;
+  grade.uniforms.sat.value = gradeBase.sat * (1 - 0.6 * f);
+  grade.uniforms.vignette.value = gradeBase.vig + 0.32 * f;
+}
 export const aoSkip = new Set();
 export function applyQuality() {
   const q = Q();

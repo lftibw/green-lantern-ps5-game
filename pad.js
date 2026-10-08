@@ -35,7 +35,7 @@ const keys = new Set();
 addEventListener('keydown', (e) => { keys.add(e.code); if (e.code === 'Tab') e.preventDefault(); });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
-const kbAnalog = { l2: 0, r2: 0 };
+const kbAnalog = { l2: 0, r2: 0, t: 0 };
 
 // ---------- connect ----------
 // Must be called from a click: WebHID + mic permission both need a user gesture.
@@ -113,8 +113,9 @@ export function read() {
   const k = (c) => keys.has(c);
   const kx = (k('KeyD') ? 1 : 0) - (k('KeyA') ? 1 : 0);
   const ky = (k('KeyW') ? 1 : 0) - (k('KeyS') ? 1 : 0);
-  kbAnalog.l2 = Math.max(0, Math.min(1, kbAnalog.l2 + (k('KeyQ') ? 0.04 : -0.08)));
-  kbAnalog.r2 = Math.max(0, Math.min(1, kbAnalog.r2 + (k('KeyE') ? 0.04 : -0.2)));
+  const now = performance.now(), kdt = Math.min(0.1, (now - (kbAnalog.t || now)) / 1000); kbAnalog.t = now; // time-based, not per-frame
+  kbAnalog.l2 = Math.max(0, Math.min(1, kbAnalog.l2 + (k('KeyQ') ? 2.4 : -4.8) * kdt));
+  kbAnalog.r2 = Math.max(0, Math.min(1, kbAnalog.r2 + (k('KeyE') ? 2.4 : -12) * kdt));
 
   const i = {
     mx: kx, my: ky,
@@ -124,7 +125,7 @@ export function read() {
     l2: kbAnalog.l2, r2: kbAnalog.r2,
     l1: k('KeyZ'), r1: k('KeyC'), l3: k('ShiftLeft'), r3: k('KeyR'),
     options: k('Escape'), create: false, ps: false, touchClick: k('Tab'),
-    touch: null, speak: k('KeyT') ? 0.8 : mic.level,
+    touch: null, speak: k('KeyT') || k('KeyV') ? 0.8 : mic.level, // T = oath, V = voice surge (keyboard stand-ins for the mic)
   };
   if (!ds) return (pad.in = i);
 

@@ -376,8 +376,9 @@ export function track(body, mesh) {
   e.p1 = e.p0.clone(); e.q1 = e.q0.clone(); bodies.push(e); return e;
 }
 export const untrack = (body) => { const k = bodies.findIndex((b) => b.body === body); if (k >= 0) bodies.splice(k, 1); };
-const STEP = 1 / 60;
+export const STEP = 1 / 60;
 let acc = 0;
+export let physAlpha = 0; // how far between the last two physics states this frame is drawn
 export function stepPhysics(dt, beforeStep) {
   acc = Math.min(acc + dt, 0.1); // cap: no spiral of death after a hitch
   while (acc >= STEP) {
@@ -388,6 +389,6 @@ export function stepPhysics(dt, beforeStep) {
       b.p1.set(t.x, t.y, t.z); b.q1.set(r.x, r.y, r.z, r.w);
     }
   }
-  const a = acc / STEP;
+  const a = (physAlpha = acc / STEP);
   for (const b of bodies) { b.mesh.position.lerpVectors(b.p0, b.p1, a); b.mesh.quaternion.slerpQuaternions(b.q0, b.q1, a); }
 }
